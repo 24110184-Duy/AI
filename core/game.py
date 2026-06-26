@@ -285,6 +285,7 @@ class Game:
         if difficulty not in ("easy", "hard"):
             return
         self.difficulty = difficulty
+        self.show_visited_nodes = difficulty == "easy"
 
     def is_easy_mode(self):
         return self.difficulty == "easy"
@@ -1765,7 +1766,8 @@ class Game:
         route_surface = pygame.Surface((MAP_WIDTH, MAP_HEIGHT), pygame.SRCALPHA)
 
         if self.is_easy_mode() and self.report.compare_algorithm:
-            self.draw_easy_algorithm_signature(route_surface)
+            if self.show_visited_nodes:
+                self.draw_easy_algorithm_signature(route_surface)
         elif self.show_visited_nodes:
             # Visited nodes are intentionally faint so planned lanes stay readable.
             for row, col in self.report.route_visited[:self.visited_visible]:
