@@ -173,6 +173,8 @@ RISK_ALGORITHMS = [
     "Expectimax",
 ]
 
+EASY_ALGORITHMS = ROUTE_ALGORITHMS + PRIORITY_ALGORITHMS + DISPATCH_ALGORITHMS + RISK_ALGORITHMS
+
 ALGORITHM_INFO = {
     "BFS": ("Đường đi", "Tìm đường ngắn nhất theo số ô. Hợp khi mọi đường có chi phí như nhau."),
     "DFS": ("Đường đi", "Đi sâu trước. Chạy nhanh nhưng không đảm bảo tối ưu."),
@@ -201,24 +203,24 @@ ALGORITHM_INFO = {
 }
 
 ALGORITHM_LABELS = {
-    "BFS": "BFS - Rộng trước",
-    "DFS": "DFS - Sâu trước",
-    "UCS": "UCS - Chi phí đều",
-    "A*": "A* - Cân bằng",
-    "Greedy": "Tham lam",
-    "IDS": "IDS - Sâu dần",
-    "Simple Hill Climbing": "Leo đồi đơn giản",
-    "Best Hill Climbing": "Leo đồi tốt nhất",
-    "Stochastic Hill Climbing": "Leo đồi ngẫu nhiên",
-    "Random Restart Hill Climbing": "Leo đồi khởi động lại",
-    "Simulated Annealing": "Ủ mô phỏng",
-    "Local Beam Search": "Tìm kiếm chùm cục bộ",
-    "Backtracking Search": "Quay lui",
-    "Forward Checking": "Kiểm tra trước",
-    "AC3 Search": "AC3 - Ràng buộc",
-    "Min Conflicts": "Giảm xung đột",
-    "And-Or Search": "AND-OR dự phòng",
-    "Belief State Search": "Trạng thái niềm tin",
+    "BFS": "BFS",
+    "DFS": "DFS",
+    "UCS": "UCS",
+    "A*": "A*",
+    "Greedy": "Greedy",
+    "IDS": "IDS",
+    "Simple Hill Climbing": "Simple Hill Climbing",
+    "Best Hill Climbing": "Best Hill Climbing",
+    "Stochastic Hill Climbing": "Stochastic Hill Climbing",
+    "Random Restart Hill Climbing": "Random Restart Hill Climbing",
+    "Simulated Annealing": "Simulated Annealing",
+    "Local Beam Search": "Local Beam Search",
+    "Backtracking Search": "Backtracking",
+    "Forward Checking": "Forwardcheck",
+    "AC3 Search": "AC-3",
+    "Min Conflicts": "Min Conflicts",
+    "And-Or Search": "And-Or Search",
+    "Belief State Search": "Belief State Search",
     "Minimax": "Minimax",
     "Alpha-Beta Pruning": "Alpha-Beta",
     "Expectimax": "Expectimax",

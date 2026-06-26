@@ -110,10 +110,12 @@ class TruckPlan:
 @dataclass
 class PlanReport:
     choice: ComboChoice
+    compare_algorithm: str = ""
     truck_plans: dict = field(default_factory=dict)     # truck id -> TruckPlan
     fire_to_trucks: dict = field(default_factory=dict)  # fire id -> [truck ids]
     fire_order: list = field(default_factory=list)      # fire ids
     route_visited: list = field(default_factory=list)
+    route_searches: list = field(default_factory=list)
     route_path_preview: list = field(default_factory=list)
     backup_paths: list = field(default_factory=list)
     dispatch_logs: list = field(default_factory=list)
@@ -130,6 +132,7 @@ class PlanReport:
     computation_nodes: int = 0
     total_travel_cost: float = 0
     planning_penalty: int = 0
+    planning_runtime_ms: float = 0
     timed_out: bool = False
 
     def all_logs(self):

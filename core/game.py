@@ -12,12 +12,13 @@ from config import (
     STATION, HYDRANT, FIRE, TRAFFIC, BLOCKED, RISKY,
     WHITE, BLACK, DARK_BG, PANEL_BG, CARD_BG, TEXT_MUTED, SUCCESS, WARNING, DANGER, CYAN, YELLOW,
     STATION_COLOR, HYDRANT_COLOR, FIRE_COLOR, HOSPITAL_COLOR, GAS_COLOR, TRAFFIC_COLOR, BLOCKED_COLOR, RISKY_COLOR,
-    ROUTE_ALGORITHMS, PRIORITY_ALGORITHMS, DISPATCH_ALGORITHMS, RISK_ALGORITHMS,
+    ROUTE_ALGORITHMS, PRIORITY_ALGORITHMS, DISPATCH_ALGORITHMS, RISK_ALGORITHMS, EASY_ALGORITHMS,
     ALGORITHM_INFO, ALGORITHM_LABELS, ALGORITHM_DETAILS,
-    PLANNING_SECONDS, STAR_2_RATIO, STAR_3_RATIO, PERFECT_RATIO,
+    PLANNING_SECONDS, PASS_RATIO, STAR_2_RATIO, STAR_3_RATIO, PERFECT_RATIO,
     ON_TIME_BONUS, LATE_TURN_PENALTY, GAS_LATE_PENALTY, HOSPITAL_LATE_PENALTY,
-    TRAVEL_COST_SCORE_PENALTY, TRAFFIC_TILE_SCORE_PENALTY,
+    TRAVEL_COST_SCORE_PENALTY, COMPUTATION_NODE_SCORE_DIVISOR, TRAFFIC_TILE_SCORE_PENALTY,
     RISKY_TILE_SCORE_PENALTY_AND_OR, RISKY_TILE_SCORE_PENALTY_BELIEF,
+    MISSING_FIRE_SCORE_PENALTY,
     TILE_SIZE, VISITED_COLOR, ALT_PATH_COLOR,
     ROUTE_LINE_OUTLINE_WIDTH, ROUTE_LINE_WIDTH,
     ROUTE_DASH_LENGTH, ROUTE_GAP_LENGTH, ROUTE_LANE_COUNT, TRUCK_COLORS,
@@ -43,6 +44,7 @@ class Game:
         self.clock = pygame.time.Clock()
         self.running = True
         self.state = STATE_MENU
+        self.difficulty = "hard"
 
         self.asset_loader = AssetLoader()
         self.city_map = None
@@ -54,6 +56,16 @@ class Game:
 
         self.report = None
         self.compare_reports = []
+        self.show_compare_modal = False
+        self.compare_scroll = 0
+        self.compare_elapsed = 0.0
+        self.compare_choices = []
+        self.compare_index = 0
+        self.compare_total = 0
+        self.compare_running = False
+        self.compare_started_at = 0.0
+        self.compare_sort_mode = "score"
+        self.planning_timer_paused_at = None
         self.trucks = []
         self.execution_started_at = None
         self.planning_started_at = time.perf_counter()
@@ -73,6 +85,7 @@ class Game:
         self.show_legend = True
         self.show_details_modal = False
         self.show_truck_modal = False
+        self.show_score_modal = False
         self.details_scroll = 0
         self.truck_colors = [tuple(color) for color in TRUCK_COLORS[:3]]
         self.truck_slider_drag = None
@@ -93,6 +106,7 @@ class Game:
         self.panel = Panel(self.screen, self.font, self.small_font, self.title_font)
 
         self.menu_buttons = []
+        self.menu_difficulty_buttons = []
         self.plan_buttons = []
         self.result_buttons = []
         self.result_modal_buttons = []
@@ -101,6 +115,7 @@ class Game:
         self.priority_dropdown = None
         self.route_dropdown = None
         self.risk_dropdown = None
+        self.easy_algorithm_dropdown = None
         self.speed_slider = None
         self.route_nodes_button = None
         self.legend_button = None
@@ -108,6 +123,11 @@ class Game:
         self.details_button = None
         self.details_close_button = None
         self.truck_close_button = None
+        self.score_close_button = None
+        self.compare_rerun_button = None
+        self.compare_close_button = None
+        self.compare_sort_score_button = None
+        self.compare_sort_time_button = None
 
         self.create_menu_ui()
         self.new_crisis()
@@ -252,13 +272,26 @@ class Game:
 
     def create_menu_ui(self):
         cx = SCREEN_WIDTH // 2
+        self.menu_difficulty_buttons = [
+            Button((cx - 145, 552, 138, 42), "DỄ", self.font, lambda: self.set_difficulty("easy"), icon="play"),
+            Button((cx + 7, 552, 138, 42), "KHÓ", self.font, lambda: self.set_difficulty("hard"), icon="plan"),
+        ]
         self.menu_buttons = [
             Button((cx - 145, 405, 290, 54), "BẮT ĐẦU", self.font, self.start_crisis, icon="play"),
             Button((cx - 145, 475, 290, 54), "THOÁT", self.font, self.quit_game, icon="close"),
         ]
 
+    def set_difficulty(self, difficulty):
+        if difficulty not in ("easy", "hard"):
+            return
+        self.difficulty = difficulty
+
+    def is_easy_mode(self):
+        return self.difficulty == "easy"
+
     def create_planning_ui(self):
         x = PANEL_X + 22
+        self.easy_algorithm_dropdown = Dropdown((x, 184, 342, 34), EASY_ALGORITHMS, self.small_font, "AI", display_labels=ALGORITHM_LABELS, max_visible=16)
         self.dispatch_dropdown = Dropdown((x, 184, 342, 34), DISPATCH_ALGORITHMS, self.small_font, "Điều xe", display_labels=ALGORITHM_LABELS)
         self.priority_dropdown = Dropdown((x, 254, 342, 34), PRIORITY_ALGORITHMS, self.small_font, "Ưu tiên", display_labels=ALGORITHM_LABELS)
         self.route_dropdown = Dropdown((x, 324, 342, 34), ROUTE_ALGORITHMS, self.small_font, "Đường đi", display_labels=ALGORITHM_LABELS)
@@ -269,6 +302,7 @@ class Game:
         self.priority_dropdown.set_selected("Simulated Annealing")
         self.route_dropdown.set_selected("A*")
         self.risk_dropdown.set_selected("Belief State Search")
+        self.easy_algorithm_dropdown.set_selected("A*")
 
         self.speed_slider = Slider((x, 570, 342, 24), 1, 12, 3, self.small_font, "Tốc độ mô phỏng", self.set_speed)
         self.details_button = Button((x, 598, 78, 24), "AI", self.small_font, self.open_details_modal, icon="info")
@@ -303,6 +337,11 @@ class Game:
         ]
         self.details_close_button = Button((SCREEN_WIDTH // 2 - 82, 650, 165, 38), "ĐÓNG", self.font, self.close_details_modal, icon="close")
         self.truck_close_button = Button((SCREEN_WIDTH // 2 - 82, 650, 165, 38), "ĐÓNG", self.font, self.close_truck_modal, icon="close")
+        self.score_close_button = Button((0, 0, 120, 34), "ĐÓNG", self.font, self.close_score_modal, icon="close")
+        self.compare_rerun_button = Button((0, 0, 150, 34), "CHẠY LẠI", self.font, self.compare_combos, icon="retry")
+        self.compare_close_button = Button((0, 0, 120, 34), "ĐÓNG", self.font, self.close_compare_modal, icon="close")
+        self.compare_sort_score_button = Button((0, 0, 132, 30), "SORT SCORE", self.small_font, self.sort_compare_by_score, icon="compare")
+        self.compare_sort_time_button = Button((0, 0, 132, 30), "SORT TIME", self.small_font, self.sort_compare_by_time, icon="compare")
 
     def set_speed(self, value):
         self.close_fire_info()
@@ -321,6 +360,8 @@ class Game:
             return
         if self.show_truck_modal:
             self.close_truck_modal()
+        if self.show_compare_modal:
+            self.close_compare_modal()
         self.close_fire_info()
         self.show_details_modal = True
         self.details_scroll = 0
@@ -328,9 +369,38 @@ class Game:
     def close_details_modal(self):
         self.show_details_modal = False
 
+    def open_score_modal(self):
+        if self.show_compare_modal:
+            self.close_compare_modal()
+        if self.show_truck_modal:
+            self.close_truck_modal()
+        self.show_details_modal = False
+        self.close_fire_info()
+        self.show_score_modal = True
+
+    def close_score_modal(self):
+        self.show_score_modal = False
+
+    def pause_planning_timer(self):
+        if self.state == STATE_PLANNING and self.planning_timer_paused_at is None:
+            self.planning_timer_paused_at = time.perf_counter()
+
+    def resume_planning_timer(self):
+        if self.planning_timer_paused_at is not None:
+            self.planning_started_at += time.perf_counter() - self.planning_timer_paused_at
+            self.planning_timer_paused_at = None
+
+    def close_compare_modal(self):
+        self.show_compare_modal = False
+        self.compare_running = False
+        self.compare_choices = []
+        self.resume_planning_timer()
+
     def open_truck_modal(self):
         self.close_fire_info()
         self.show_details_modal = False
+        if self.show_compare_modal:
+            self.close_compare_modal()
         self.show_truck_modal = True
         self.truck_slider_drag = None
         if self.truck_close_button:
@@ -343,8 +413,9 @@ class Game:
         self.truck_edit_key = None
         if self.truck_specs_dirty and self.state == STATE_PLANNING and self.planner:
             self.planner.reset_cache()
-            self.benchmark_score, self.pass_score, self.best_report, tested, elapsed = self.planner.estimate_benchmark()
-            self.benchmark_info = f"AI kiểm thử: {tested} tổ hợp trong {elapsed:.2f}s"
+            self.benchmark_score, self.pass_score, self.best_report, tested, elapsed = self.estimate_mode_benchmark()
+            benchmark_unit = "thuật toán" if self.is_easy_mode() else "tổ hợp"
+            self.benchmark_info = f"AI kiểm thử: {tested} {benchmark_unit} trong {elapsed:.2f}s"
         self.truck_specs_dirty = False
 
     def close_fire_info(self):
@@ -353,6 +424,9 @@ class Game:
 
     def close_open_menus(self):
         self.show_details_modal = False
+        self.show_score_modal = False
+        if self.show_compare_modal:
+            self.close_compare_modal()
         if self.show_truck_modal:
             self.close_truck_modal()
         self.close_fire_info()
@@ -424,6 +498,15 @@ class Game:
     def details_modal_rect(self):
         return pygame.Rect(145, 70, 990, 650)
 
+    def score_modal_rect(self):
+        return pygame.Rect(240, 92, 800, 590)
+
+    def score_help_button_rect(self):
+        return pygame.Rect(SCREEN_WIDTH - 48, 18, 30, 30)
+
+    def compare_modal_rect(self):
+        return pygame.Rect(70, 48, 1140, 690)
+
     def truck_modal_rect(self):
         return pygame.Rect(90, 55, 1100, 670)
 
@@ -447,14 +530,62 @@ class Game:
             return
         self.truck_menu_button.draw(self.screen, active=self.show_truck_modal)
 
+    def draw_score_help_button(self):
+        rect = self.score_help_button_rect()
+        hovered = rect.collidepoint(pygame.mouse.get_pos())
+        fill = YELLOW if hovered or self.show_score_modal else (54, 56, 68)
+        border = WHITE if hovered else YELLOW
+        text_color = BLACK if hovered or self.show_score_modal else YELLOW
+        pygame.draw.circle(self.screen, fill, rect.center, rect.width // 2)
+        pygame.draw.circle(self.screen, border, rect.center, rect.width // 2, 2)
+        mark = self.font.render("!", True, text_color)
+        self.screen.blit(mark, mark.get_rect(center=(rect.centerx, rect.centery - 1)))
+        if hovered and not self.show_score_modal:
+            self.draw_score_help_tooltip(rect)
+
+    def draw_score_help_tooltip(self, source_rect):
+        width, height = 306, 84
+        rect = pygame.Rect(source_rect.left - width - 10, source_rect.bottom + 8, width, height)
+        pygame.draw.rect(self.screen, (0, 0, 0), rect.move(0, 4), border_radius=7)
+        pygame.draw.rect(self.screen, (22, 22, 30), rect, border_radius=7)
+        pygame.draw.rect(self.screen, YELLOW, rect, 1, border_radius=7)
+        self.panel.text("Cách tính điểm", rect.x + 12, rect.y + 10, YELLOW, self.small_font, max_width=rect.width - 24)
+        self.panel.wrapped(
+            "Click để xem công thức cộng điểm đám cháy, thưởng đúng hạn và các khoản phạt.",
+            rect.x + 12,
+            rect.y + 34,
+            width_chars=42,
+            color=WHITE,
+            line_height=18,
+            max_lines=2,
+            font=self.tiny_font,
+            max_width=rect.width - 24,
+        )
+
     def new_crisis(self):
         self.reset_map_camera()
-        self.city_map = CityMap(self.asset_loader)
+        self.city_map = CityMap(
+            self.asset_loader,
+            station_count=1 if self.is_easy_mode() else 3,
+            fire_count=6,
+            force_single_truck_fires=self.is_easy_mode(),
+        )
         self.planner = CrisisPlanner(self.city_map)
-        self.benchmark_score, self.pass_score, self.best_report, tested, elapsed = self.planner.estimate_benchmark()
-        self.benchmark_info = f"AI kiểm thử: {tested} tổ hợp trong {elapsed:.2f}s"
+        self.benchmark_score, self.pass_score, self.best_report, tested, elapsed = self.estimate_mode_benchmark()
+        benchmark_unit = "thuật toán" if self.is_easy_mode() else "tổ hợp"
+        self.benchmark_info = f"AI kiểm thử: {tested} {benchmark_unit} trong {elapsed:.2f}s"
         self.report = None
         self.compare_reports = []
+        self.show_compare_modal = False
+        self.compare_scroll = 0
+        self.compare_elapsed = 0.0
+        self.compare_choices = []
+        self.compare_index = 0
+        self.compare_total = 0
+        self.compare_running = False
+        self.compare_started_at = 0.0
+        self.compare_sort_mode = "score"
+        self.planning_timer_paused_at = None
         self.reviewing_result = False
         self.selected_fire = None
         self.fire_info_rect = None
@@ -476,6 +607,16 @@ class Game:
         self.close_open_menus()
         self.report = None
         self.compare_reports = []
+        self.show_compare_modal = False
+        self.compare_scroll = 0
+        self.compare_elapsed = 0.0
+        self.compare_choices = []
+        self.compare_index = 0
+        self.compare_total = 0
+        self.compare_running = False
+        self.compare_started_at = 0.0
+        self.compare_sort_mode = "score"
+        self.planning_timer_paused_at = None
         self.reviewing_result = False
         self.create_trucks()
         self.reset_execution_state()
@@ -560,7 +701,34 @@ class Game:
                 truck.lane_slot = distributed_lane_slot(active_index, len(active_plans), ROUTE_LANE_COUNT)
                 truck.set_path(plan.full_path)
 
+    def easy_choices(self):
+        return [self.easy_choice_for_algorithm(algorithm) for algorithm in EASY_ALGORITHMS]
+
+    def easy_compare_choices(self):
+        return EASY_ALGORITHMS[:]
+
+    def estimate_mode_benchmark(self):
+        if not self.is_easy_mode():
+            return self.planner.estimate_benchmark()
+        best_report = None
+        tested = 0
+        start = time.perf_counter()
+        for algorithm in EASY_ALGORITHMS:
+            report = self.planner.build_easy_plan(algorithm, 0, 0, 0)
+            tested += 1
+            if best_report is None or report.score > best_report.score:
+                best_report = report
+        elapsed = time.perf_counter() - start
+        benchmark = best_report.score if best_report else 0
+        pass_score = int(benchmark * PASS_RATIO)
+        return benchmark, pass_score, best_report, tested, elapsed
+
+    def easy_choice_for_algorithm(self, algorithm):
+        return ComboChoice(algorithm, algorithm, algorithm, algorithm)
+
     def selected_choice(self):
+        if self.is_easy_mode():
+            return self.easy_choice_for_algorithm(self.easy_algorithm_dropdown.selected)
         return ComboChoice(
             self.dispatch_dropdown.selected,
             self.priority_dropdown.selected,
@@ -569,7 +737,8 @@ class Game:
         )
 
     def planning_seconds_used(self):
-        return int(time.perf_counter() - self.planning_started_at)
+        now = self.planning_timer_paused_at if self.planning_timer_paused_at is not None else time.perf_counter()
+        return int(now - self.planning_started_at)
 
     def planning_seconds_left(self):
         return max(0, PLANNING_SECONDS - self.planning_seconds_used())
@@ -579,14 +748,24 @@ class Game:
         timed_out = timed_out or used_seconds >= PLANNING_SECONDS
         instant_result = instant_result or timed_out
         self.close_open_menus()
-        choice = self.selected_choice()
-        self.report = self.planner.build_plan(
-            choice,
-            planning_seconds_used=max(used_seconds, PLANNING_SECONDS if timed_out else used_seconds),
-            benchmark_score=self.benchmark_score,
-            pass_score=self.pass_score,
-            timed_out=timed_out,
-        )
+        planning_seconds = max(used_seconds, PLANNING_SECONDS if timed_out else used_seconds)
+        if self.is_easy_mode():
+            self.report = self.planner.build_easy_plan(
+                self.easy_algorithm_dropdown.selected,
+                planning_seconds_used=planning_seconds,
+                benchmark_score=self.benchmark_score,
+                pass_score=self.pass_score,
+                timed_out=timed_out,
+            )
+        else:
+            choice = self.selected_choice()
+            self.report = self.planner.build_plan(
+                choice,
+                planning_seconds_used=planning_seconds,
+                benchmark_score=self.benchmark_score,
+                pass_score=self.pass_score,
+                timed_out=timed_out,
+            )
         self.create_trucks()
         self.reset_execution_state()
         self.apply_report_paths_to_trucks()
@@ -603,20 +782,80 @@ class Game:
 
     def compare_combos(self):
         self.close_open_menus()
-        self.compare_reports = self.planner.compare_current_map()
+        self.compare_choices = self.easy_compare_choices() if self.is_easy_mode() else self.planner.comparison_choices(limit=None)
+        self.compare_index = 0
+        self.compare_total = len(self.compare_choices)
+        self.compare_running = True
+        self.compare_started_at = time.perf_counter()
+        self.compare_elapsed = 0.0
+        self.compare_reports = []
+        self.compare_scroll = 0
+        self.compare_sort_mode = "score"
+        self.show_compare_modal = True
+        self.pause_planning_timer()
+
+    def process_compare_work(self):
+        if not self.compare_running:
+            return
+        frame_started = time.perf_counter()
+        processed = 0
+        # Run at least one combo, then stop when this frame has spent enough time.
+        while self.compare_index < self.compare_total:
+            item = self.compare_choices[self.compare_index]
+            self.compare_index += 1
+            if self.is_easy_mode():
+                report = self.planner.build_easy_plan(item, 0, 0, 0)
+            else:
+                report = self.planner.build_plan(item, 0, 0, 0)
+            self.compare_reports.append(report)
+            processed += 1
+            if processed >= 2 or time.perf_counter() - frame_started >= 0.012:
+                break
+        self.compare_elapsed = time.perf_counter() - self.compare_started_at
+        if self.compare_index >= self.compare_total:
+            self.compare_running = False
+            self.compare_reports.sort(key=lambda r: (r.score, r.extinguished_count, -r.planning_runtime_ms), reverse=True)
+
+    def compare_visible_rows(self):
+        rect = self.compare_modal_rect()
+        table_h = rect.height - 342
+        return max(1, (table_h - 34) // 28)
+
+    def scroll_compare(self, delta):
+        max_scroll = max(0, len(self.compare_reports) - self.compare_visible_rows())
+        self.compare_scroll = max(0, min(max_scroll, self.compare_scroll + delta))
+
+    def sort_compare_by_score(self):
+        self.compare_sort_mode = "score"
+        self.compare_scroll = 0
+
+    def sort_compare_by_time(self):
+        self.compare_sort_mode = "time"
+        self.compare_scroll = 0
+
+    def sorted_compare_reports(self):
+        if self.compare_sort_mode == "time":
+            return sorted(self.compare_reports, key=lambda r: (r.planning_runtime_ms, -r.score))
+        return sorted(
+            self.compare_reports,
+            key=lambda r: (r.score, r.extinguished_count, -r.planning_runtime_ms),
+            reverse=True,
+        )
 
     def all_trucks_finished(self):
         return all(t.finished for t in self.trucks)
 
     def update(self):
+        self.process_compare_work()
         if self.state == STATE_PLANNING:
-            if self.planning_seconds_left() <= 0:
+            if not self.show_compare_modal and self.planning_seconds_left() <= 0:
                 self.execute_plan(timed_out=True, instant_result=True)
             return
         if self.state != STATE_EXECUTING:
             return
         if self.report:
-            self.visited_visible = min(len(self.report.route_visited), self.visited_visible + self.animation_speed * 4)
+            visit_step = self.animation_speed * (2 if self.is_easy_mode() else 4)
+            self.visited_visible = min(len(self.report.route_visited), self.visited_visible + visit_step)
             self.path_visible = min(self.max_route_path_length(), self.path_visible + self.animation_speed)
             for truck in self.trucks:
                 truck.update(self.animation_speed)
@@ -630,6 +869,9 @@ class Game:
                 self.running = False
                 continue
             if event.type == pygame.KEYDOWN:
+                if self.show_score_modal and event.key == pygame.K_ESCAPE:
+                    self.close_score_modal()
+                    continue
                 if self.show_truck_modal and event.key == pygame.K_ESCAPE:
                     self.close_truck_modal()
                     continue
@@ -639,6 +881,43 @@ class Game:
                 alt_enter = event.key == pygame.K_RETURN and event.mod & pygame.KMOD_ALT
                 if event.key == pygame.K_F11 or alt_enter:
                     self.toggle_fullscreen()
+                    continue
+                if self.show_compare_modal:
+                    if event.key == pygame.K_ESCAPE:
+                        self.close_compare_modal()
+                    elif event.key in (pygame.K_c, pygame.K_r):
+                        self.compare_combos()
+                    elif event.key in (pygame.K_DOWN, pygame.K_PAGEDOWN):
+                        self.scroll_compare(5)
+                    elif event.key in (pygame.K_UP, pygame.K_PAGEUP):
+                        self.scroll_compare(-5)
+                    continue
+            if self.show_compare_modal:
+                if event.type == pygame.MOUSEWHEEL:
+                    self.scroll_compare(-event.y * 5)
+                    continue
+                for btn in [
+                    self.compare_rerun_button,
+                    self.compare_close_button,
+                    self.compare_sort_score_button,
+                    self.compare_sort_time_button,
+                ]:
+                    if btn and btn.handle_event(event):
+                        return
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    if not self.compare_modal_rect().collidepoint(event.pos):
+                        self.close_compare_modal()
+                        return
+                if event.type in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP, pygame.MOUSEMOTION):
+                    continue
+            if self.show_score_modal:
+                if self.score_close_button and self.score_close_button.handle_event(event):
+                    return
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    if not self.score_modal_rect().collidepoint(event.pos):
+                        self.close_score_modal()
+                        return
+                if event.type in (pygame.KEYDOWN, pygame.MOUSEWHEEL, pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP, pygame.MOUSEMOTION):
                     continue
             if self.show_truck_modal:
                 if self.handle_truck_modal_event(event):
@@ -659,16 +938,24 @@ class Game:
                         return
                 if event.type in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP, pygame.MOUSEMOTION):
                     continue
+            if self.state != STATE_MENU and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if self.score_help_button_rect().collidepoint(event.pos):
+                    self.open_score_modal()
+                    return
             if self.handle_map_zoom_event(event):
                 continue
             if self.handle_fire_info_event(event):
                 return
             if self.state == STATE_MENU:
+                for btn in self.menu_difficulty_buttons:
+                    if btn.handle_event(event):
+                        return
                 for btn in self.menu_buttons:
                     btn.handle_event(event)
             elif self.state == STATE_PLANNING:
                 # Dropdowns first so buttons do not steal clicks.
-                for dd in [self.dispatch_dropdown, self.priority_dropdown, self.route_dropdown, self.risk_dropdown]:
+                dropdowns = [self.easy_algorithm_dropdown] if self.is_easy_mode() else [self.dispatch_dropdown, self.priority_dropdown, self.route_dropdown, self.risk_dropdown]
+                for dd in dropdowns:
                     if dd.handle_event(event):
                         return
                 if self.speed_slider.handle_event(event):
@@ -691,13 +978,19 @@ class Game:
                     elif event.key == pygame.K_ESCAPE:
                         self.to_menu()
                     elif event.key == pygame.K_1:
-                        self.dispatch_dropdown.next()
+                        if self.is_easy_mode():
+                            self.easy_algorithm_dropdown.next()
+                        else:
+                            self.dispatch_dropdown.next()
                     elif event.key == pygame.K_2:
-                        self.priority_dropdown.next()
+                        if not self.is_easy_mode():
+                            self.priority_dropdown.next()
                     elif event.key == pygame.K_3:
-                        self.route_dropdown.next()
+                        if not self.is_easy_mode():
+                            self.route_dropdown.next()
                     elif event.key == pygame.K_4:
-                        self.risk_dropdown.next()
+                        if not self.is_easy_mode():
+                            self.risk_dropdown.next()
             elif self.state == STATE_EXECUTING:
                 if self.speed_slider.handle_event(event):
                     return
@@ -941,13 +1234,19 @@ class Game:
             self.draw_panel()
             if self.state == STATE_RESULT and not self.reviewing_result:
                 self.draw_result_modal()
-            if self.selected_fire:
+            if self.show_compare_modal:
+                self.draw_compare_modal()
+            elif self.selected_fire:
                 self.draw_fire_info_card()
-            if self.show_details_modal:
-                self.draw_details_modal()
-            if self.show_truck_modal:
-                self.draw_truck_modal()
-            self.draw_map_hover_tooltip()
+            if not self.show_compare_modal:
+                if self.show_details_modal:
+                    self.draw_details_modal()
+                if self.show_truck_modal:
+                    self.draw_truck_modal()
+                if self.show_score_modal:
+                    self.draw_score_modal()
+                else:
+                    self.draw_map_hover_tooltip()
         pygame.display.flip()
 
     def draw_menu(self):
@@ -973,6 +1272,11 @@ class Game:
             y += 25
         for btn in self.menu_buttons:
             btn.draw(self.screen)
+        mode_label = self.small_font.render("CHẾ ĐỘ", True, TEXT_MUTED)
+        self.screen.blit(mode_label, mode_label.get_rect(center=(SCREEN_WIDTH // 2, 540)))
+        for index, btn in enumerate(self.menu_difficulty_buttons):
+            active = (index == 0 and self.is_easy_mode()) or (index == 1 and not self.is_easy_mode())
+            btn.draw(self.screen, active=active)
 
     def draw_game_world(self):
         map_surface = pygame.Surface((MAP_WIDTH, MAP_HEIGHT))
@@ -1460,7 +1764,9 @@ class Game:
             return
         route_surface = pygame.Surface((MAP_WIDTH, MAP_HEIGHT), pygame.SRCALPHA)
 
-        if self.show_visited_nodes:
+        if self.is_easy_mode() and self.report.compare_algorithm:
+            self.draw_easy_algorithm_signature(route_surface)
+        elif self.show_visited_nodes:
             # Visited nodes are intentionally faint so planned lanes stay readable.
             for row, col in self.report.route_visited[:self.visited_visible]:
                 rect = pygame.Rect(col * TILE_SIZE + 11, row * TILE_SIZE + 11, TILE_SIZE - 22, TILE_SIZE - 22)
@@ -1492,6 +1798,332 @@ class Game:
             self.draw_parallel_path(route_surface, path, color, slot_index, slot_count, alpha=alpha, label=plan.truck_id)
 
         self.screen.blit(route_surface, (0, 0))
+
+    def draw_easy_algorithm_signature(self, surface):
+        algorithm = self.report.compare_algorithm
+        searches = self.visible_easy_route_searches()
+        if searches:
+            for search, visited, active in searches:
+                self.draw_common_easy_search_signature(surface, search, visited, active)
+        elif self.report.route_visited:
+            limit = len(self.report.route_visited) if self.state == STATE_RESULT else max(1, self.visited_visible)
+            fallback_search = {
+                "start": self.report.route_visited[0],
+                "goal": self.report.route_visited[-1],
+                "path": self.report.route_path_preview,
+                "visited": self.report.route_visited,
+            }
+            self.draw_common_easy_search_signature(surface, fallback_search, self.report.route_visited[:limit], False)
+        self.draw_easy_algorithm_badge(surface, algorithm)
+
+    def visible_easy_route_searches(self):
+        searches = self.report.route_searches or []
+        if not searches:
+            return []
+        visible_limit = len(self.report.route_visited) if self.state == STATE_RESULT else self.visited_visible
+        out = []
+        for search in searches:
+            visited = search.get("visited", [])
+            if not visited:
+                continue
+            start = search.get("visited_start", 0)
+            if self.state == STATE_RESULT:
+                count = len(visited)
+                active = False
+            else:
+                count = max(0, min(len(visited), visible_limit - start))
+                active = 0 < count < len(visited)
+            if count <= 0:
+                continue
+            out.append((search, visited[:count], active))
+        if out:
+            return out
+        first = searches[0]
+        return [(first, first.get("visited", [])[:1], True)]
+
+    def unique_visible_visited_cells(self):
+        limit = len(self.report.route_visited) if self.state == STATE_RESULT else max(1, self.visited_visible)
+        cells = []
+        seen = set()
+        for cell in self.report.route_visited[:limit]:
+            if cell in seen:
+                continue
+            seen.add(cell)
+            cells.append(cell)
+            if len(cells) >= 360:
+                break
+        return cells
+
+    def cell_center_point(self, cell):
+        row, col = cell
+        return col * TILE_SIZE + TILE_SIZE // 2, row * TILE_SIZE + TILE_SIZE // 2
+
+    def draw_common_easy_search_signature(self, surface, search, visited, active=False):
+        visible_cells = visited[:420]
+        total_visible = max(1, len(visible_cells))
+        for index, cell in enumerate(visible_cells):
+            row, col = cell
+            t = index / total_visible
+            fill = (55, 170 + int(55 * t), 255, 92 + int(78 * t))
+            rect = pygame.Rect(col * TILE_SIZE + 6, row * TILE_SIZE + 6, TILE_SIZE - 12, TILE_SIZE - 12)
+            pygame.draw.rect(surface, fill, rect, border_radius=5)
+            pygame.draw.rect(surface, (210, 245, 255, 62), rect, 1, border_radius=5)
+            if index % 10 == 0:
+                pygame.draw.circle(surface, (255, 255, 255, 105), rect.center, 3)
+
+        path = self.visible_easy_search_path(search, visited, active)
+        if len(path) >= 2:
+            points = [self.cell_center_point(cell) for cell in path]
+            pygame.draw.lines(surface, (5, 7, 12, 235), False, points, 8)
+            pygame.draw.lines(surface, (82, 230, 132, 245), False, points, 4)
+            self.draw_easy_path_arrows(surface, points)
+
+        if visited:
+            head = self.cell_center_point(visited[-1])
+            pygame.draw.circle(surface, (5, 7, 12, 235), head, 13)
+            pygame.draw.circle(surface, (255, 230, 80, 245), head, 10, 3)
+            if active:
+                pygame.draw.circle(surface, (255, 255, 255, 145), head, 16, 1)
+
+        self.draw_search_endpoint(surface, search.get("start"), "S", CYAN)
+        self.draw_search_endpoint(surface, search.get("goal"), "G", YELLOW)
+
+    def visible_easy_search_path(self, search, visited, active=False):
+        path = search.get("path", [])
+        if len(path) < 2:
+            return []
+        if self.state == STATE_RESULT or not active:
+            return path
+        visible_set = set(visited)
+        last_index = 0
+        for index, cell in enumerate(path):
+            if cell in visible_set:
+                last_index = index
+        return path[:max(2, last_index + 1)]
+
+    def draw_easy_path_arrows(self, surface, points):
+        if len(points) < 2:
+            return
+        spacing = max(2, len(points) // 5)
+        for index in range(spacing, len(points), spacing):
+            x1, y1 = points[index - 1]
+            x2, y2 = points[index]
+            dx, dy = x2 - x1, y2 - y1
+            length = math.hypot(dx, dy)
+            if length <= 0:
+                continue
+            ux, uy = dx / length, dy / length
+            px, py = -uy, ux
+            tip = (int(x2), int(y2))
+            left = (int(x2 - ux * 9 + px * 5), int(y2 - uy * 9 + py * 5))
+            right = (int(x2 - ux * 9 - px * 5), int(y2 - uy * 9 - py * 5))
+            pygame.draw.polygon(surface, (5, 7, 12, 220), [tip, left, right])
+            pygame.draw.polygon(surface, (255, 235, 95, 235), [tip, left, right])
+
+    def draw_bfs_signature(self, surface, search, visited, active=False):
+        # BFS is shown as true layers from the search start, with the current frontier highlighted.
+        start = search.get("start")
+        max_layer = max((abs(cell[0] - start[0]) + abs(cell[1] - start[1]) for cell in visited), default=0) if start else 0
+        for index, cell in enumerate(visited):
+            cx, cy = self.cell_center_point(cell)
+            layer = abs(cell[0] - start[0]) + abs(cell[1] - start[1]) if start else index // 8
+            frontier = layer == max_layer
+            radius = 4 + (layer % 4) * 2
+            alpha = 210 if frontier else max(55, 145 - (max_layer - layer) * 10)
+            pygame.draw.circle(surface, (70, 220, 255, alpha), (cx, cy), radius, 2)
+            if frontier:
+                pygame.draw.circle(surface, (255, 255, 255, 135), (cx, cy), radius + 4, 1)
+        if start:
+            self.draw_search_endpoint(surface, start, "S", CYAN)
+        goal = search.get("goal")
+        if goal:
+            self.draw_search_endpoint(surface, goal, "G", YELLOW)
+
+    def draw_dfs_signature(self, surface, search, visited, active=False):
+        # DFS is shown as a deep stack trail. Non-adjacent jumps are drawn as backtracking dots, not fake roads.
+        points = [self.cell_center_point(cell) for cell in visited[:260]]
+        previous_cell = None
+        previous_point = None
+        for index, (cell, point) in enumerate(zip(visited[:260], points)):
+            if previous_cell and abs(cell[0] - previous_cell[0]) + abs(cell[1] - previous_cell[1]) == 1:
+                pygame.draw.line(surface, (42, 18, 58, 205), previous_point, point, 6)
+                pygame.draw.line(surface, (190, 90, 255, 235), previous_point, point, 3)
+            else:
+                pygame.draw.circle(surface, (190, 90, 255, 115), point, 6, 1)
+            if index % 4 == 0:
+                pygame.draw.circle(surface, (255, 230, 120, 210), point, 3)
+            previous_cell = cell
+            previous_point = point
+        if points:
+            pygame.draw.circle(surface, (255, 95, 170, 235), points[-1], 9, 3)
+        self.draw_search_endpoint(surface, search.get("start"), "S", (190, 90, 255))
+        self.draw_search_endpoint(surface, search.get("goal"), "G", YELLOW)
+
+    def draw_ucs_signature(self, surface, search, visited, active=False):
+        # UCS is shown as a cost frontier: low-cost cells are green, expensive cells glow warmer.
+        for index, cell in enumerate(visited):
+            row, col = cell
+            cost = self.city_map.get_tile_cost(row, col, risky_penalty=self.planner.current_risky_penalty)
+            if cost <= 1:
+                color = (88, 230, 140, 95)
+            elif cost <= 3:
+                color = (255, 220, 90, 120)
+            else:
+                color = (255, 126, 64, 145)
+            rect = pygame.Rect(col * TILE_SIZE + 6, row * TILE_SIZE + 6, TILE_SIZE - 12, TILE_SIZE - 12)
+            pygame.draw.rect(surface, color, rect, border_radius=5)
+            pygame.draw.rect(surface, (255, 255, 255, 55), rect, 1, border_radius=5)
+            if index % 18 == 0:
+                label = self.tiny_font.render("g", True, BLACK if cost <= 3 else WHITE)
+                surface.blit(label, label.get_rect(center=rect.center))
+        if visited:
+            pygame.draw.circle(surface, (255, 255, 255, 200), self.cell_center_point(visited[-1]), 9, 2)
+        self.draw_search_endpoint(surface, search.get("start"), "S", SUCCESS)
+        self.draw_search_endpoint(surface, search.get("goal"), "G", YELLOW)
+
+    def draw_astar_signature(self, surface, search, visited, active=False):
+        # A* balances cost and heuristic, so cells point toward the goal with f=g+h markers.
+        goal = search.get("goal") or self.easy_signature_goal()
+        for index, cell in enumerate(visited):
+            cx, cy = self.cell_center_point(cell)
+            h = abs(cell[0] - goal[0]) + abs(cell[1] - goal[1]) if goal else 0
+            mix = min(1.0, h / 24)
+            color = (int(80 + 170 * (1 - mix)), int(225 - 45 * mix), int(255 - 145 * (1 - mix)), 125)
+            points = [(cx, cy - 8), (cx + 8, cy), (cx, cy + 8), (cx - 8, cy)]
+            pygame.draw.polygon(surface, color, points)
+            if index % 15 == 0:
+                label = self.tiny_font.render("f", True, WHITE)
+                surface.blit(label, label.get_rect(center=(cx, cy)))
+        if goal:
+            for cell in visited[-12::3]:
+                self.draw_heuristic_ray(surface, cell, goal, (95, 216, 255, 85))
+        self.draw_search_endpoint(surface, search.get("start"), "S", CYAN)
+        self.draw_search_endpoint(surface, goal, "G", YELLOW)
+
+    def draw_greedy_signature(self, surface, search, visited, active=False):
+        # Greedy follows only h(n), shown as repeated arrows pulled toward the current goal.
+        goal = search.get("goal") or self.easy_signature_goal()
+        if not goal:
+            return
+        for index, cell in enumerate(visited):
+            if index % 2:
+                continue
+            cx, cy = self.cell_center_point(cell)
+            gx, gy = self.cell_center_point(goal)
+            dx = 0 if gx == cx else (1 if gx > cx else -1)
+            dy = 0 if gy == cy else (1 if gy > cy else -1)
+            tip = (cx + dx * 10, cy + dy * 10)
+            tail = (cx - dx * 5, cy - dy * 5)
+            pygame.draw.line(surface, (255, 225, 65, 190), tail, tip, 3)
+            left = (tip[0] - dx * 5 - dy * 4, tip[1] - dy * 5 + dx * 4)
+            right = (tip[0] - dx * 5 + dy * 4, tip[1] - dy * 5 - dx * 4)
+            pygame.draw.polygon(surface, (255, 225, 65, 220), [tip, left, right])
+            if index % 10 == 0:
+                h_label = self.tiny_font.render("h", True, BLACK)
+                surface.blit(h_label, h_label.get_rect(center=(cx, cy)))
+        self.draw_search_endpoint(surface, search.get("start"), "S", YELLOW)
+        self.draw_search_endpoint(surface, goal, "G", YELLOW)
+
+    def draw_ids_signature(self, surface, search, visited, active=False):
+        # IDS repeats depth-limited DFS, shown as alternating depth bands.
+        start = search.get("start") or (self.city_map.stations[0].start if self.city_map.stations else None)
+        for cell in visited:
+            cx, cy = self.cell_center_point(cell)
+            depth = abs(cell[0] - start[0]) + abs(cell[1] - start[1]) if start else 0
+            color = (80, 255, 170, 105) if (depth // 3) % 2 == 0 else (95, 216, 255, 105)
+            radius = 4 + depth % 4
+            pygame.draw.circle(surface, color, (cx, cy), radius, 1)
+        self.draw_search_endpoint(surface, start, "S", SUCCESS)
+        self.draw_search_endpoint(surface, search.get("goal"), "G", YELLOW)
+
+    def draw_search_endpoint(self, surface, cell, label, color):
+        if not cell:
+            return
+        cx, cy = self.cell_center_point(cell)
+        pygame.draw.circle(surface, (8, 9, 14, 220), (cx, cy), 11)
+        pygame.draw.circle(surface, (*color, 225), (cx, cy), 9)
+        text = self.tiny_font.render(label, True, BLACK)
+        surface.blit(text, text.get_rect(center=(cx, cy)))
+
+    def draw_heuristic_ray(self, surface, cell, goal, color):
+        start = self.cell_center_point(cell)
+        end = self.cell_center_point(goal)
+        pygame.draw.line(surface, color, start, end, 1)
+
+    def easy_signature_goal(self):
+        for plan in self.report.truck_plans.values():
+            for kind, label, path in plan.path_segments:
+                if kind == "CHÁY" and path:
+                    return path[-1]
+        if self.report.route_path_preview:
+            return self.report.route_path_preview[-1]
+        return None
+
+    def draw_priority_signature(self, surface):
+        for index, fid in enumerate(self.report.fire_order):
+            fire = self.city_map.fire_lookup.get(fid)
+            if not fire:
+                continue
+            cx, cy = self.cell_center_point(fire.cell)
+            pygame.draw.circle(surface, (255, 225, 65, 210), (cx, cy), 14, 3)
+            label = self.small_font.render(str(index + 1), True, BLACK)
+            badge = label.get_rect(center=(cx, cy))
+            pygame.draw.circle(surface, (255, 225, 65, 230), (cx, cy), 9)
+            surface.blit(label, badge)
+
+    def draw_dispatch_signature(self, surface):
+        if not self.city_map.stations:
+            return
+        start = self.cell_center_point(self.city_map.stations[0].start)
+        for fid in self.report.fire_order:
+            fire = self.city_map.fire_lookup.get(fid)
+            if not fire:
+                continue
+            end = self.cell_center_point(fire.cell)
+            pygame.draw.line(surface, (90, 210, 255, 120), start, end, 2)
+            pygame.draw.circle(surface, (90, 210, 255, 170), end, 11, 2)
+
+    def draw_risk_signature(self, surface):
+        ticks = pygame.time.get_ticks()
+        pulse = 0.55 + 0.45 * math.sin(ticks * 0.01)
+        for row in range(len(self.city_map.grid)):
+            for col in range(len(self.city_map.grid[row])):
+                tile = self.city_map.grid[row][col]
+                if tile not in (RISKY, TRAFFIC):
+                    continue
+                rect = pygame.Rect(col * TILE_SIZE + 4, row * TILE_SIZE + 4, TILE_SIZE - 8, TILE_SIZE - 8)
+                color = (170, 110, 255, int(90 + 70 * pulse)) if tile == RISKY else (255, 190, 70, int(80 + 55 * pulse))
+                pygame.draw.rect(surface, color, rect, 3, border_radius=6)
+
+    def draw_easy_algorithm_badge(self, surface, algorithm):
+        group, _desc = ALGORITHM_INFO.get(algorithm, ("AI", ""))
+        title = f"{self.algorithm_label(algorithm)} - {group}"
+        rect = pygame.Rect(12, 12, 380, 62)
+        pygame.draw.rect(surface, (10, 12, 18, 215), rect, border_radius=8)
+        pygame.draw.rect(surface, YELLOW, rect, 1, border_radius=8)
+        self.draw_algorithm_glyph(surface, algorithm, pygame.Rect(rect.x + 12, rect.y + 17, 28, 28))
+        title = self.panel.fit_text(title, self.small_font, rect.width - 62)
+        name = self.small_font.render(title, True, WHITE)
+        surface.blit(name, (rect.x + 48, rect.y + 10))
+        sub_text = self.easy_algorithm_progress_text()
+        sub_text = self.panel.fit_text(sub_text, self.tiny_font, rect.width - 62)
+        sub = self.tiny_font.render(sub_text, True, TEXT_MUTED)
+        surface.blit(sub, (rect.x + 48, rect.y + 36))
+
+    def easy_algorithm_progress_text(self):
+        searches = self.visible_easy_route_searches()
+        if not searches:
+            return "Chuẩn bị mở rộng ô tìm đường"
+        search, visited, _active = searches[-1]
+        total = max(1, len(search.get("visited", [])))
+        target = search.get("label", "")
+        return f"Mở rộng {len(visited)}/{total} ô tới {target}"
+
+    def draw_algorithm_glyph(self, surface, algorithm, rect):
+        cx, cy = rect.center
+        for radius in (6, 11, 15):
+            pygame.draw.circle(surface, CYAN, (cx, cy), radius, 1)
+        pygame.draw.circle(surface, YELLOW, (cx, cy), 4)
 
     def max_route_path_length(self):
         if not self.report:
@@ -1713,6 +2345,7 @@ class Game:
         y += 20
         self.panel.text(self.benchmark_info, x, y, TEXT_MUTED, self.small_font, max_width=PANEL_CONTENT_WIDTH)
         y += 26
+        self.draw_score_help_button()
 
         if self.state == STATE_PLANNING:
             self.draw_planning_panel(x, y)
@@ -1726,6 +2359,34 @@ class Game:
         color = SUCCESS if left > 45 else WARNING if left > 15 else DANGER
         self.panel.text(f"Thời gian lập kế hoạch: {left}s", x, y, color, self.font, max_width=PANEL_CONTENT_WIDTH)
         y += 38
+
+        if self.is_easy_mode():
+            self.panel.text("AI - chọn 1 trong 16 thuật toán", x, y, TEXT_MUTED, self.small_font, max_width=PANEL_CONTENT_WIDTH)
+            y += 20
+            self.easy_algorithm_dropdown.draw(self.screen)
+            y += 56
+            self.panel.wrapped(
+                "Chế độ dễ dùng 1 xe cứu hỏa cho nhiều đám cháy. Thuật toán được chọn sẽ thay nhóm AI tương ứng, các nhóm còn lại dùng mặc định.",
+                x,
+                y,
+                width_chars=44,
+                color=TEXT_MUTED,
+                line_height=18,
+                max_lines=3,
+                font=self.tiny_font,
+                max_width=PANEL_CONTENT_WIDTH,
+            )
+            y += 62
+            self.draw_algorithm_card(x, y)
+            self.speed_slider.draw(self.screen)
+            self.draw_legend_button()
+            self.draw_route_nodes_button()
+            self.draw_truck_menu_button()
+            for btn in self.plan_buttons:
+                btn.draw(self.screen)
+            self.draw_compare_table(x, 720)
+            self.draw_dropdowns_on_top()
+            return
 
         self.panel.text("1. AI ĐIỀU XE - phân công xe", x, y, TEXT_MUTED, self.small_font, max_width=PANEL_CONTENT_WIDTH); y += 20
         self.dispatch_dropdown.draw(self.screen); y += 50
@@ -1748,6 +2409,15 @@ class Game:
         self.draw_dropdowns_on_top()
 
     def draw_algorithm_card(self, x, y):
+        if self.is_easy_mode():
+            algorithm = self.easy_algorithm_dropdown.selected
+            group, _desc = ALGORITHM_INFO.get(algorithm, ("AI", ""))
+            self.panel.text("AI đã chọn:", x, y, CYAN, self.small_font, max_width=PANEL_CONTENT_WIDTH)
+            y += 18
+            self.panel.text(f"{group}: {self.algorithm_label(algorithm)}", x, y, WHITE, self.tiny_font, max_width=PANEL_CONTENT_WIDTH)
+            y += 18
+            self.panel.text("Chạy riêng thuật toán này, không kẹp 3 mục AI khác.", x, y, TEXT_MUTED, self.tiny_font, max_width=PANEL_CONTENT_WIDTH)
+            return
         selected = [
             self.dispatch_dropdown.selected,
             self.priority_dropdown.selected,
@@ -1989,9 +2659,239 @@ class Game:
         for btn in self.result_modal_buttons:
             btn.draw(self.screen)
 
+    def draw_compare_modal(self):
+        rect = self.compare_modal_rect()
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 158))
+        self.screen.blit(overlay, (0, 0))
+
+        pygame.draw.rect(self.screen, (0, 0, 0), rect.move(0, 8), border_radius=8)
+        pygame.draw.rect(self.screen, CARD_BG, rect, border_radius=8)
+        pygame.draw.rect(self.screen, (96, 96, 116), rect, 1, border_radius=8)
+
+        processed = self.compare_index if self.compare_running else len(self.compare_reports)
+        total = self.compare_total or len(self.compare_reports)
+        status = "Đang chạy" if self.compare_running else "Hoàn tất"
+        title = "SO SÁNH 16 THUẬT TOÁN" if self.is_easy_mode() else "SO SÁNH TỔ HỢP AI"
+        unit = "thuật toán" if self.is_easy_mode() else "tổ hợp"
+        self.panel.text(title, rect.x + 28, rect.y + 22, WHITE, self.title_font, max_width=560)
+        subtitle = f"{status}: {processed}/{total} {unit} | {self.compare_elapsed:.2f}s | cuộn chuột để xem thêm"
+        self.panel.text(subtitle, rect.x + 30, rect.y + 64, TEXT_MUTED, self.small_font, max_width=620)
+        self.draw_progress_bar(rect.x + 30, rect.y + 86, 420, 10, processed, max(1, total), CYAN if self.compare_running else SUCCESS)
+
+        if self.compare_rerun_button:
+            self.compare_rerun_button.rect = pygame.Rect(rect.right - 292, rect.y + 24, 150, 34)
+            self.compare_rerun_button.draw(self.screen)
+        if self.compare_close_button:
+            self.compare_close_button.rect = pygame.Rect(rect.right - 132, rect.y + 24, 104, 34)
+            self.compare_close_button.draw(self.screen)
+        if self.compare_sort_score_button:
+            self.compare_sort_score_button.rect = pygame.Rect(rect.x + 468, rect.y + 72, 132, 30)
+            self.compare_sort_score_button.draw(self.screen, active=self.compare_sort_mode == "score")
+        if self.compare_sort_time_button:
+            self.compare_sort_time_button.rect = pygame.Rect(rect.x + 610, rect.y + 72, 132, 30)
+            self.compare_sort_time_button.draw(self.screen, active=self.compare_sort_mode == "time")
+
+        if not self.compare_reports:
+            self.panel.text("Đang chuẩn bị dữ liệu so sánh...", rect.x + 30, rect.y + 120, TEXT_MUTED, self.font, max_width=rect.width - 60)
+            return
+
+        best_report = max(self.compare_reports, key=lambda r: (r.score, r.extinguished_count, -r.planning_runtime_ms))
+        fastest_report = min(self.compare_reports, key=lambda r: (r.planning_runtime_ms, -r.score))
+        card_y = rect.y + 98
+        card_w = (rect.width - 84) // 2
+        self.draw_compare_summary_card(
+            pygame.Rect(rect.x + 28, card_y, card_w, 118),
+            "ĐIỂM CAO NHẤT",
+            best_report,
+            SUCCESS,
+            f"{best_report.score} điểm",
+            f"{best_report.planning_runtime_ms:.2f}ms",
+        )
+        self.draw_compare_summary_card(
+            pygame.Rect(rect.x + 56 + card_w, card_y, card_w, 118),
+            "NHANH NHẤT",
+            fastest_report,
+            CYAN,
+            f"{fastest_report.planning_runtime_ms:.2f}ms",
+            f"{fastest_report.score} điểm",
+        )
+
+        table_rect = pygame.Rect(rect.x + 28, rect.y + 246, rect.width - 56, rect.height - 318)
+        if self.is_easy_mode():
+            table_title = "Bảng xếp hạng 16 thuật toán theo điểm" if self.compare_sort_mode == "score" else "Bảng xếp hạng 16 thuật toán theo thời gian"
+        else:
+            table_title = "Bảng xếp theo điểm cao nhất" if self.compare_sort_mode == "score" else "Bảng xếp theo thời gian lập kế hoạch nhanh nhất"
+        if self.compare_running:
+            table_title += " (tạm thời)"
+        self.panel.text(table_title, table_rect.x, table_rect.y - 26, CYAN, self.small_font, max_width=table_rect.width)
+        self.draw_compare_rows(table_rect, fastest_report)
+
+        footer = "ESC/Đóng để thoát hoặc hủy | C hoặc Chạy lại để thử lại các thuật toán có random"
+        self.panel.text(footer, rect.x + 30, rect.bottom - 48, TEXT_MUTED, self.tiny_font, max_width=rect.width - 60)
+
+    def draw_compare_summary_card(self, rect, title, report, color, main_metric, sub_metric):
+        pygame.draw.rect(self.screen, PANEL_BG, rect, border_radius=8)
+        pygame.draw.rect(self.screen, color, rect, 1, border_radius=8)
+        self.panel.text(title, rect.x + 14, rect.y + 12, color, self.small_font, max_width=rect.width - 28)
+        self.panel.text(main_metric, rect.x + 14, rect.y + 38, WHITE, self.font, max_width=rect.width - 28)
+        self.panel.text(sub_metric, rect.x + 14, rect.y + 66, TEXT_MUTED, self.tiny_font, max_width=rect.width - 28)
+        if self.is_easy_mode():
+            algorithm = report.compare_algorithm or report.choice.route_ai
+            group, _desc = ALGORITHM_INFO.get(algorithm, ("AI", ""))
+            line = f"{self.algorithm_label(algorithm)} ({group})"
+            self.panel.text(line, rect.x + 14, rect.y + 88, TEXT_MUTED, self.tiny_font, max_width=rect.width - 28)
+            return
+        line = (
+            f"{self.algorithm_label(report.choice.dispatch_ai)} | "
+            f"{self.algorithm_label(report.choice.priority_ai)} | "
+            f"{self.algorithm_label(report.choice.route_ai)} | "
+            f"{self.algorithm_label(report.choice.risk_ai)}"
+        )
+        self.panel.text(line, rect.x + 14, rect.y + 88, TEXT_MUTED, self.tiny_font, max_width=rect.width - 28)
+
+    def draw_easy_compare_rows(self, rect, fastest_report):
+        pygame.draw.rect(self.screen, PANEL_BG, rect, border_radius=6)
+        pygame.draw.rect(self.screen, (76, 76, 94), rect, 1, border_radius=6)
+        rows = self.sorted_compare_reports()
+        visible_rows = self.compare_visible_rows()
+        max_scroll = max(0, len(rows) - visible_rows)
+        self.compare_scroll = max(0, min(max_scroll, self.compare_scroll))
+
+        columns = [
+            ("#", 42),
+            ("ms", 76),
+            ("Điểm", 70),
+            ("Lửa", 56),
+            ("Cost", 68),
+            ("Thuật toán", 360),
+            ("Nhóm", 160),
+            ("Luồng chạy", 220),
+        ]
+        header_y = rect.y + 10
+        x = rect.x + 12
+        for title, width in columns:
+            self.panel.text(title, x, header_y, WARNING, self.tiny_font, max_width=width - 8)
+            x += width
+
+        row_h = 28
+        y = header_y + 28
+        visible = rows[self.compare_scroll:self.compare_scroll + visible_rows]
+        for index, report in enumerate(visible, start=self.compare_scroll + 1):
+            row_rect = pygame.Rect(rect.x + 8, y - 5, rect.width - 28, row_h - 3)
+            is_fastest = report is fastest_report
+            if is_fastest:
+                pygame.draw.rect(self.screen, (35, 74, 84), row_rect, border_radius=4)
+                pygame.draw.rect(self.screen, CYAN, row_rect, 1, border_radius=4)
+            elif index % 2 == 0:
+                pygame.draw.rect(self.screen, (31, 31, 42), row_rect, border_radius=4)
+
+            algorithm = report.compare_algorithm or report.choice.route_ai
+            group, _desc = ALGORITHM_INFO.get(algorithm, ("AI", ""))
+            color = WHITE if is_fastest else TEXT_MUTED
+            values = [
+                str(index),
+                f"{report.planning_runtime_ms:.2f}",
+                str(report.score),
+                f"{report.extinguished_count}/{report.total_fires}",
+                str(int(report.total_travel_cost)),
+                self.algorithm_label(algorithm),
+                group,
+                "Chỉ thuật toán này",
+            ]
+            x = rect.x + 12
+            for value, (_title, width) in zip(values, columns):
+                self.panel.text(value, x, y, color, self.tiny_font, max_width=width - 8)
+                x += width
+            y += row_h
+
+        if len(rows) > visible_rows:
+            track = pygame.Rect(rect.right - 14, rect.y + 38, 6, rect.height - 56)
+            pygame.draw.rect(self.screen, (52, 52, 66), track, border_radius=3)
+            ratio = visible_rows / len(rows)
+            thumb_h = max(30, int(track.height * ratio))
+            thumb_y = track.y + int((track.height - thumb_h) * (self.compare_scroll / max(1, max_scroll)))
+            pygame.draw.rect(self.screen, CYAN, (track.x, thumb_y, track.width, thumb_h), border_radius=3)
+
+        showing_to = min(len(rows), self.compare_scroll + visible_rows)
+        info = f"Đang xem {self.compare_scroll + 1}-{showing_to}/{len(rows)} thuật toán"
+        self.panel.text(info, rect.x + 12, rect.bottom - 24, TEXT_MUTED, self.tiny_font, max_width=260)
+
+    def draw_compare_rows(self, rect, fastest_report):
+        if self.is_easy_mode():
+            self.draw_easy_compare_rows(rect, fastest_report)
+            return
+        pygame.draw.rect(self.screen, PANEL_BG, rect, border_radius=6)
+        pygame.draw.rect(self.screen, (76, 76, 94), rect, 1, border_radius=6)
+        rows = self.sorted_compare_reports()
+        visible_rows = self.compare_visible_rows()
+        max_scroll = max(0, len(rows) - visible_rows)
+        self.compare_scroll = max(0, min(max_scroll, self.compare_scroll))
+
+        columns = [
+            ("#", 42),
+            ("ms", 76),
+            ("Điểm", 70),
+            ("Lửa", 56),
+            ("Cost", 68),
+            ("Điều xe", 188),
+            ("Ưu tiên", 214),
+            ("Đường", 114),
+            ("Rủi ro", 210),
+        ]
+        header_y = rect.y + 10
+        x = rect.x + 12
+        for title, width in columns:
+            self.panel.text(title, x, header_y, WARNING, self.tiny_font, max_width=width - 8)
+            x += width
+
+        row_h = 28
+        y = header_y + 28
+        visible = rows[self.compare_scroll:self.compare_scroll + visible_rows]
+        fastest_key = fastest_report.choice.as_tuple()
+        for index, report in enumerate(visible, start=self.compare_scroll + 1):
+            row_rect = pygame.Rect(rect.x + 8, y - 5, rect.width - 28, row_h - 3)
+            is_fastest = report.choice.as_tuple() == fastest_key and abs(report.planning_runtime_ms - fastest_report.planning_runtime_ms) < 0.0001
+            if is_fastest:
+                pygame.draw.rect(self.screen, (35, 74, 84), row_rect, border_radius=4)
+                pygame.draw.rect(self.screen, CYAN, row_rect, 1, border_radius=4)
+            elif index % 2 == 0:
+                pygame.draw.rect(self.screen, (31, 31, 42), row_rect, border_radius=4)
+            color = WHITE if is_fastest else TEXT_MUTED
+            values = [
+                str(index),
+                f"{report.planning_runtime_ms:.2f}",
+                str(report.score),
+                f"{report.extinguished_count}/{report.total_fires}",
+                str(int(report.total_travel_cost)),
+                self.algorithm_label(report.choice.dispatch_ai),
+                self.algorithm_label(report.choice.priority_ai),
+                self.algorithm_label(report.choice.route_ai),
+                self.algorithm_label(report.choice.risk_ai),
+            ]
+            x = rect.x + 12
+            for value, (_title, width) in zip(values, columns):
+                self.panel.text(value, x, y, color, self.tiny_font, max_width=width - 8)
+                x += width
+            y += row_h
+
+        if len(rows) > visible_rows:
+            track = pygame.Rect(rect.right - 14, rect.y + 38, 6, rect.height - 56)
+            pygame.draw.rect(self.screen, (52, 52, 66), track, border_radius=3)
+            ratio = visible_rows / len(rows)
+            thumb_h = max(30, int(track.height * ratio))
+            thumb_y = track.y + int((track.height - thumb_h) * (self.compare_scroll / max(1, max_scroll)))
+            pygame.draw.rect(self.screen, CYAN, (track.x, thumb_y, track.width, thumb_h), border_radius=3)
+
+        showing_to = min(len(rows), self.compare_scroll + visible_rows)
+        info = f"Đang xem {self.compare_scroll + 1}-{showing_to}/{len(rows)}"
+        self.panel.text(info, rect.x + 12, rect.bottom - 24, TEXT_MUTED, self.tiny_font, max_width=220)
+
     def detail_lines(self):
         if not self.report:
             return []
+        if self.is_easy_mode() and self.report.compare_algorithm:
+            return self.easy_detail_lines()
         lines = [
             ("TÓM TẮT", CYAN),
             (f"Điểm: {self.report.score} / Qua màn: {self.report.pass_score} / Tốt nhất: {self.report.benchmark_score}", WHITE),
@@ -2030,6 +2930,41 @@ class Game:
                 lines.append(("Không có chi tiết.", TEXT_MUTED))
             lines.append(("", TEXT_MUTED))
         return lines
+
+    def easy_detail_lines(self):
+        algorithm = self.report.compare_algorithm
+        group, _desc = ALGORITHM_INFO.get(algorithm, ("AI", ""))
+        logs = self.logs_for_algorithm(self.report, algorithm)
+        lines = [
+            ("TÓM TẮT", CYAN),
+            (f"Điểm: {self.report.score} / Qua màn: {self.report.pass_score} / Tốt nhất: {self.report.benchmark_score}", WHITE),
+            (f"Đám cháy: {self.report.extinguished_count}/{self.report.total_fires}", WHITE),
+            (f"Thuật toán chạy: {self.algorithm_label(algorithm)} ({group})", WHITE),
+            ("Chế độ dễ chỉ chạy thuật toán này; không kẹp 3 mục AI khác.", TEXT_MUTED),
+            (f"Kết luận: {self.report.fail_reason}", WHITE),
+            ("", TEXT_MUTED),
+            (f"{group.upper()} - {self.algorithm_label(algorithm)}", CYAN),
+        ]
+        for explanation in self.algorithm_explanation_lines(algorithm):
+            self.append_wrapped_detail(lines, f"- {explanation}", WHITE, max_chars=106)
+        lines.append(("Nhật ký lần chạy:", WARNING))
+        if logs:
+            for line in logs:
+                self.append_wrapped_detail(lines, f"  {line}", TEXT_MUTED, max_chars=112, continuation="    ")
+        else:
+            lines.append(("Thuật toán này không tạo thêm nhật ký chi tiết trong lượt chạy.", TEXT_MUTED))
+        return lines
+
+    def logs_for_algorithm(self, report, algorithm):
+        if algorithm in DISPATCH_ALGORITHMS:
+            return report.dispatch_logs
+        if algorithm in PRIORITY_ALGORITHMS:
+            return report.priority_logs
+        if algorithm in ROUTE_ALGORITHMS:
+            return report.route_logs
+        if algorithm in RISK_ALGORITHMS:
+            return report.risk_logs
+        return []
 
     def algorithm_explanation_lines(self, algorithm):
         _group, short_desc = ALGORITHM_INFO.get(algorithm, ("AI", ""))
@@ -2106,6 +3041,59 @@ class Game:
 
         if self.details_close_button:
             self.details_close_button.draw(self.screen)
+
+    def score_help_lines(self):
+        lines = [
+            ("CÁCH TÍNH ĐIỂM", CYAN),
+            ("Điểm cuối = điểm đám cháy + thưởng đúng hạn - các khoản phạt, sau đó không thấp hơn 0.", WHITE),
+            ("CỘNG ĐIỂM", YELLOW),
+        ]
+        self.append_wrapped_detail(lines, f"Mỗi đám cháy dập được cộng điểm cơ bản của đám đó và +{ON_TIME_BONUS} nếu tới không trễ hạn.", WHITE, max_chars=92)
+        lines.append(("PHẠT", YELLOW))
+        self.append_wrapped_detail(lines, f"Trễ hạn: -{LATE_TURN_PENALTY} mỗi lượt trễ. Nếu trễ ở trạm xăng phạt thêm -{GAS_LATE_PENALTY}; nếu trễ ở bệnh viện phạt thêm -{HOSPITAL_LATE_PENALTY}.", WHITE, max_chars=92)
+        self.append_wrapped_detail(lines, f"Chi phí đường đi: -int(tổng chi phí x {TRAVEL_COST_SCORE_PENALTY}). Nút đã tính: -int(số nút / {COMPUTATION_NODE_SCORE_DIVISOR}).", WHITE, max_chars=92)
+        self.append_wrapped_detail(lines, f"Ô kẹt xe: -{TRAFFIC_TILE_SCORE_PENALTY}/ô. Ô rủi ro: -{RISKY_TILE_SCORE_PENALTY_AND_OR}/ô với And-Or, còn lại -{RISKY_TILE_SCORE_PENALTY_BELIEF}/ô.", WHITE, max_chars=92)
+        self.append_wrapped_detail(lines, f"Đám cháy chưa dập: -{MISSING_FIRE_SCORE_PENALTY}/đám. Lập kế hoạch lâu bị phạt 5 điểm mỗi 6 giây; hết giờ bị phạt nặng.", WHITE, max_chars=92)
+        lines.append(("MỐC QUA MÀN", YELLOW))
+        self.append_wrapped_detail(lines, f"Điểm qua màn = {int(PASS_RATIO * 100)}% điểm benchmark tốt nhất của map. 2 sao cần {int(STAR_2_RATIO * 100)}%, 3 sao cần {int(STAR_3_RATIO * 100)}%, hoàn hảo cần {int(PERFECT_RATIO * 100)}%.", WHITE, max_chars=92)
+        if self.report:
+            missing = self.report.total_fires - self.report.extinguished_count
+            risky_penalty = RISKY_TILE_SCORE_PENALTY_AND_OR if self.report.choice.risk_ai == "And-Or Search" else RISKY_TILE_SCORE_PENALTY_BELIEF
+            traffic_tiles = sum(plan.traffic_tiles for plan in self.report.truck_plans.values())
+            risky_tiles = sum(plan.risky_tiles for plan in self.report.truck_plans.values())
+            lines.append(("LẦN CHẠY HIỆN TẠI", CYAN))
+            self.append_wrapped_detail(lines, f"Điểm: {self.report.score}. Đã dập {self.report.extinguished_count}/{self.report.total_fires}; chưa dập {missing}.", WHITE, max_chars=92)
+            self.append_wrapped_detail(lines, f"Chi phí đường: {int(self.report.total_travel_cost)}; nút đã tính: {self.report.computation_nodes}; phạt lập kế hoạch: {self.report.planning_penalty}.", WHITE, max_chars=92)
+            self.append_wrapped_detail(lines, f"Ô kẹt xe: {traffic_tiles}; ô rủi ro: {risky_tiles} (phạt {risky_penalty}/ô).", WHITE, max_chars=92)
+        return lines
+
+    def draw_score_modal(self):
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 150))
+        self.screen.blit(overlay, (0, 0))
+
+        rect = self.score_modal_rect()
+        pygame.draw.rect(self.screen, (0, 0, 0), rect.move(0, 8), border_radius=8)
+        pygame.draw.rect(self.screen, CARD_BG, rect, border_radius=8)
+        pygame.draw.rect(self.screen, (96, 96, 116), rect, 1, border_radius=8)
+
+        self.panel.text("CÁCH TÍNH ĐIỂM", rect.x + 28, rect.y + 24, WHITE, self.title_font, max_width=rect.width - 190)
+        self.panel.text("Các con số bên dưới lấy trực tiếp từ công thức trong game.", rect.x + 30, rect.y + 66, TEXT_MUTED, self.small_font, max_width=rect.width - 60)
+
+        content_rect = pygame.Rect(rect.x + 30, rect.y + 104, rect.width - 60, rect.height - 168)
+        pygame.draw.rect(self.screen, PANEL_BG, content_rect, border_radius=6)
+        pygame.draw.rect(self.screen, (70, 70, 88), content_rect, 1, border_radius=6)
+
+        y = content_rect.y + 14
+        for text, color in self.score_help_lines()[:24]:
+            if text:
+                font = self.small_font if color in (CYAN, YELLOW) else self.tiny_font
+                self.panel.text(text, content_rect.x + 14, y, color, font, max_width=content_rect.width - 28)
+            y += 18
+
+        if self.score_close_button:
+            self.score_close_button.rect = pygame.Rect(rect.right - 150, rect.y + 24, 120, 34)
+            self.score_close_button.draw(self.screen)
 
     def draw_truck_modal(self):
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
@@ -2254,7 +3242,8 @@ class Game:
     def draw_compare_table(self, x, y):
         if not self.compare_reports:
             self.panel.text("Phím: Dấu cách Chạy | C So sánh", x, y, TEXT_MUTED, self.tiny_font, max_width=PANEL_CONTENT_WIDTH)
-            self.panel.text("1/2/3/4 đổi AI | R Bản đồ mới", x, y + 17, TEXT_MUTED, self.tiny_font, max_width=PANEL_CONTENT_WIDTH)
+            hint = "1 đổi thuật toán | R Bản đồ mới" if self.is_easy_mode() else "1/2/3/4 đổi AI | R Bản đồ mới"
+            self.panel.text(hint, x, y + 17, TEXT_MUTED, self.tiny_font, max_width=PANEL_CONTENT_WIDTH)
             return
         self.panel.text("So sánh nhanh tốt nhất:", x, y, CYAN, self.tiny_font, max_width=PANEL_CONTENT_WIDTH)
         y += 17
@@ -2264,7 +3253,8 @@ class Game:
 
     def draw_dropdowns_on_top(self):
         # Redraw opened dropdown last so it overlays lower widgets.
-        for dd in [self.dispatch_dropdown, self.priority_dropdown, self.route_dropdown, self.risk_dropdown]:
+        dropdowns = [self.easy_algorithm_dropdown] if self.is_easy_mode() else [self.dispatch_dropdown, self.priority_dropdown, self.route_dropdown, self.risk_dropdown]
+        for dd in dropdowns:
             if dd.expanded:
                 dd.draw(self.screen)
 

@@ -55,10 +55,13 @@ class CityMap:
     - lots/visuals store footprint metadata for large PNG assets.
     """
 
-    def __init__(self, asset_loader=None, seed=None):
+    def __init__(self, asset_loader=None, seed=None, station_count=3, fire_count=6, force_single_truck_fires=False):
         self.asset_loader = asset_loader
         self.seed = seed
         self.rng = random.Random(seed)
+        self.station_count = max(1, min(3, int(station_count)))
+        self.fire_count = max(1, int(fire_count))
+        self.force_single_truck_fires = force_single_truck_fires
         self.grid = []
         self.visuals = []
         self.districts = []
@@ -373,18 +376,19 @@ class CityMap:
         for cell in road_cells:
             if all(abs(cell[0] - other[0]) + abs(cell[1] - other[1]) >= 9 for other in chosen):
                 chosen.append(cell)
-            if len(chosen) == 3:
+            if len(chosen) == self.station_count:
                 break
-        while len(chosen) < 3 and road_cells:
+        while len(chosen) < self.station_count and road_cells:
             chosen.append(road_cells.pop())
 
-        for idx, cell in enumerate(chosen[:3]):
+        for idx, cell in enumerate(chosen[:self.station_count]):
             r, c = cell
             self._set_road_tile(r, c, STATION)
+            easy_single_truck = self.station_count == 1
             speed = [3, 2, 2][idx]
-            capacity = [90, 150, 140][idx]
+            capacity = [180, 150, 140][idx] if easy_single_truck else [90, 150, 140][idx]
             water = capacity
-            heavy = idx == 2
+            heavy = easy_single_truck or idx == 2
             self.stations.append(TruckSpec(f"T{idx + 1}", idx, cell, speed, water, capacity, heavy))
 
         for _ in range(4):
@@ -430,7 +434,7 @@ class CityMap:
         self.rng.shuffle(candidates)
         candidates.sort(key=lambda item: self._fire_candidate_weight(item[0]))
 
-        count = 6
+        count = self.fire_count
         placed = 0
         danger_tiles = {HOSPITAL: "hospital", GAS_STATION: "gas", PARK: "normal"}
         while placed < count and candidates:
@@ -444,7 +448,7 @@ class CityMap:
                 severity = max(severity, 2)
             if lot.footprint[0] * lot.footprint[1] >= 9:
                 severity = max(severity, 2)
-            required = 2 if severity >= 3 or danger == "gas" else 1
+            required = 1 if self.force_single_truck_fires else 2 if severity >= 3 or danger == "gas" else 1
             deadline = max(4, 9 - severity - (2 if danger != "normal" else 0))
             base_score = 100 + severity * 80 + (220 if danger == "gas" else 0) + (180 if danger == "hospital" else 0)
             incident = FireIncident(f"F{placed + 1}", fire_cell, target, severity, deadline, danger, required, base_score)
