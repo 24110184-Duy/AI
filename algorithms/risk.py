@@ -36,7 +36,51 @@ def belief_state_policy(planner):
     return 6, logs
 
 
+def minimax_policy(planner):
+    risky_cells = _cells_with_tile(planner.map, RISKY)
+    traffic_cells = _cells_with_tile(planner.map, TRAFFIC)
+    worst_risk = len(risky_cells)
+    worst_traffic = len(traffic_cells)
+    penalty = min(14, 8 + worst_risk // 5 + worst_traffic // 20)
+    logs = ["Minimax: xem môi trường như đối thủ luôn chọn tình huống xấu nhất."]
+    logs.append(f"Ô rủi ro '?': {_sample_cells(risky_cells)}")
+    logs.append(f"Ô kẹt xe: {worst_traffic}")
+    logs.append(f"MAX: chọn tuyến có thiệt hại thấp nhất; MIN: giả định '?' bị chặn hoặc gây chậm.")
+    logs.append(f"Mô hình: phạt rủi ro mạnh, penalty mỗi ô '?' = {penalty}.")
+    return penalty, logs
+
+
+def alpha_beta_policy(planner):
+    risky_cells = _cells_with_tile(planner.map, RISKY)
+    traffic_cells = _cells_with_tile(planner.map, TRAFFIC)
+    examined_branches = max(1, len(risky_cells) + len(traffic_cells))
+    pruned_branches = examined_branches // 3
+    penalty = min(12, 7 + len(risky_cells) // 6 + len(traffic_cells) // 24)
+    logs = ["Alpha-Beta Pruning: dùng Minimax nhưng cắt sớm nhánh không thể tốt hơn."]
+    logs.append(f"Ô rủi ro '?': {_sample_cells(risky_cells)}")
+    logs.append(f"Ô kẹt xe: {len(traffic_cells)}")
+    logs.append(f"Cắt tỉa khoảng {pruned_branches}/{examined_branches} nhánh rủi ro giả lập.")
+    logs.append(f"Mô hình: vẫn ưu tiên an toàn, penalty mỗi ô '?' = {penalty}.")
+    return penalty, logs
+
+
+def expectimax_policy(planner):
+    risky_cells = _cells_with_tile(planner.map, RISKY)
+    traffic_cells = _cells_with_tile(planner.map, TRAFFIC)
+    expected_risk = len(risky_cells) * 0.45 + len(traffic_cells) * 0.18
+    penalty = min(10, 3 + int(expected_risk // 3))
+    logs = ["Expectimax: tính theo kỳ vọng thay vì luôn lấy tình huống xấu nhất."]
+    logs.append(f"Ô rủi ro '?': {_sample_cells(risky_cells)}")
+    logs.append(f"Ô kẹt xe: {len(traffic_cells)}")
+    logs.append("Chance node: '?' có thể mở hoặc bị chặn; kẹt xe có thể nhẹ hoặc nặng.")
+    logs.append(f"Mô hình: cân bằng tốc độ/an toàn, penalty mỗi ô '?' = {penalty}.")
+    return penalty, logs
+
+
 RISK_ALGORITHM_FUNCS = {
     "And-Or Search": and_or_policy,
     "Belief State Search": belief_state_policy,
+    "Minimax": minimax_policy,
+    "Alpha-Beta Pruning": alpha_beta_policy,
+    "Expectimax": expectimax_policy,
 }

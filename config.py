@@ -165,7 +165,13 @@ DISPATCH_ALGORITHMS = [
     "Forward Checking",
     "AC3 Search",
 ]
-RISK_ALGORITHMS = ["And-Or Search", "Belief State Search"]
+RISK_ALGORITHMS = [
+    "And-Or Search",
+    "Belief State Search",
+    "Minimax",
+    "Alpha-Beta Pruning",
+    "Expectimax",
+]
 
 ALGORITHM_INFO = {
     "BFS": ("Đường đi", "Tìm đường ngắn nhất theo số ô. Hợp khi mọi đường có chi phí như nhau."),
@@ -189,6 +195,9 @@ ALGORITHM_INFO = {
 
     "And-Or Search": ("Rủi ro", "Lập phương án dự phòng cho đường rủi ro."),
     "Belief State Search": ("Rủi ro", "Ưu tiên tuyến an toàn khi đường có trạng thái chưa chắc chắn."),
+    "Minimax": ("Rủi ro", "Chọn tuyến theo trường hợp xấu nhất của đường rủi ro và kẹt xe."),
+    "Alpha-Beta Pruning": ("Rủi ro", "Minimax có cắt tỉa nhánh kém để tính nhanh hơn."),
+    "Expectimax": ("Rủi ro", "Chọn tuyến theo kỳ vọng khi rủi ro có xác suất xảy ra."),
 }
 
 ALGORITHM_LABELS = {
@@ -210,6 +219,9 @@ ALGORITHM_LABELS = {
     "Min Conflicts": "Giảm xung đột",
     "And-Or Search": "AND-OR dự phòng",
     "Belief State Search": "Trạng thái niềm tin",
+    "Minimax": "Minimax",
+    "Alpha-Beta Pruning": "Alpha-Beta",
+    "Expectimax": "Expectimax",
 }
 
 ALGORITHM_DETAILS = {
@@ -302,6 +314,21 @@ ALGORITHM_DETAILS = {
         "Xem đường rủi ro như trạng thái chưa chắc chắn: có thể mở, có thể bị chặn.",
         "AI phạt rủi ro cao hơn để ưu tiên đường an toàn, dù đường đó có thể dài hơn.",
         "Nếu điểm ổn định hơn nhưng chi phí đường cao hơn, đó là vì AI đang chọn phương án ít rủi ro.",
+    ],
+    "Minimax": [
+        "Xem đường rủi ro như đối thủ luôn chọn tình huống xấu nhất cho xe cứu hỏa.",
+        "AI chọn phương án có thiệt hại tối đa thấp nhất, nên thường tránh vùng nhiều '?' hoặc kẹt xe.",
+        "Phù hợp khi muốn mô phỏng quyết định rất thận trọng trước các tình huống bất lợi.",
+    ],
+    "Alpha-Beta Pruning": [
+        "Dùng cùng tư duy Minimax nhưng bỏ sớm các nhánh đã chắc chắn không thể tốt hơn.",
+        "Kết quả vẫn thiên về phương án an toàn, nhưng log cho thấy quá trình cắt tỉa để giảm tính toán.",
+        "Phù hợp khi muốn minh họa Minimax chạy hiệu quả hơn nhờ loại nhánh không cần xét.",
+    ],
+    "Expectimax": [
+        "Xem rủi ro như sự kiện có xác suất thay vì luôn giả định tình huống xấu nhất.",
+        "AI tính điểm kỳ vọng giữa đường mở, đường bị chặn, kẹt nhẹ và kẹt nặng.",
+        "Phù hợp khi muốn phương án cân bằng hơn giữa tốc độ và độ an toàn.",
     ],
 }
 
