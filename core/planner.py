@@ -1,4 +1,4 @@
-# core/planner.py
+﻿# core/planner.py
 
 import time
 import itertools
@@ -6,7 +6,6 @@ import itertools
 from config import (
     PASS_RATIO, TRAFFIC, RISKY, ALGORITHM_LABELS,
     ROUTE_ALGORITHMS, PRIORITY_ALGORITHMS, DISPATCH_ALGORITHMS, RISK_ALGORITHMS,
-    ON_TIME_BONUS, LATE_TURN_PENALTY, GAS_LATE_PENALTY, HOSPITAL_LATE_PENALTY,
     TRAVEL_COST_SCORE_PENALTY, COMPUTATION_NODE_SCORE_DIVISOR,
     TRAFFIC_TILE_SCORE_PENALTY, RISKY_TILE_SCORE_PENALTY_AND_OR,
     RISKY_TILE_SCORE_PENALTY_BELIEF, MISSING_FIRE_SCORE_PENALTY,
@@ -168,7 +167,7 @@ class CrisisPlanner:
                 if len(route_logs) < 18:
                     route_logs.append(
                         f"{tid} -> {fid}: chi phí {int(segment.cost)}, nút {segment.visited_count}, "
-                        f"{segment.runtime_ms:.2f}ms, lượt {arrival_turn}"
+                        f"{segment.runtime_ms:.2f}ms"
                     )
             plan.full_path = full_path
             truck_plans[tid] = plan
@@ -330,7 +329,7 @@ class CrisisPlanner:
                 if len(route_logs) < 18:
                     route_logs.append(
                         f"{tid} -> {fid}: chi phí {int(segment.cost)}, nút {segment.visited_count}, "
-                        f"{segment.runtime_ms:.2f}ms, lượt {arrival_turn}"
+                        f"{segment.runtime_ms:.2f}ms"
                     )
             plan.full_path = full_path
             truck_plans[tid] = plan
@@ -371,15 +370,6 @@ class CrisisPlanner:
                     fire = self.map.fire_lookup[fid]
                     handled_fires.add(fid)
                     score += fire.base_score
-                    arrival = plan.arrival_times[fid]
-                    if arrival <= fire.deadline:
-                        score += ON_TIME_BONUS
-                    else:
-                        score -= (arrival - fire.deadline) * LATE_TURN_PENALTY
-                    if fire.danger_zone == "gas" and arrival > fire.deadline:
-                        score -= GAS_LATE_PENALTY
-                    if fire.danger_zone == "hospital" and arrival > fire.deadline:
-                        score -= HOSPITAL_LATE_PENALTY
         score -= int(report.total_travel_cost * TRAVEL_COST_SCORE_PENALTY)
         score -= int(report.computation_nodes / COMPUTATION_NODE_SCORE_DIVISOR)
         score -= report.planning_penalty
@@ -438,3 +428,4 @@ class CrisisPlanner:
         else:
             reports.sort(key=lambda r: (r.score, r.extinguished_count, -r.planning_runtime_ms), reverse=True)
         return reports
+

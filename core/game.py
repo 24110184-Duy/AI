@@ -15,7 +15,6 @@ from config import (
     ROUTE_ALGORITHMS, PRIORITY_ALGORITHMS, DISPATCH_ALGORITHMS, RISK_ALGORITHMS, EASY_ALGORITHMS,
     ALGORITHM_INFO, ALGORITHM_LABELS, ALGORITHM_DETAILS,
     PLANNING_SECONDS, PASS_RATIO, STAR_2_RATIO, STAR_3_RATIO, PERFECT_RATIO,
-    ON_TIME_BONUS, LATE_TURN_PENALTY, GAS_LATE_PENALTY, HOSPITAL_LATE_PENALTY,
     TRAVEL_COST_SCORE_PENALTY, COMPUTATION_NODE_SCORE_DIVISOR, TRAFFIC_TILE_SCORE_PENALTY,
     RISKY_TILE_SCORE_PENALTY_AND_OR, RISKY_TILE_SCORE_PENALTY_BELIEF,
     MISSING_FIRE_SCORE_PENALTY,
@@ -563,7 +562,7 @@ class Game:
         pygame.draw.rect(self.screen, YELLOW, rect, 1, border_radius=7)
         self.panel.text("Cách tính điểm", rect.x + 12, rect.y + 10, YELLOW, self.small_font, max_width=rect.width - 24)
         self.panel.wrapped(
-            "Click để xem công thức cộng điểm đám cháy, thưởng đúng hạn và các khoản phạt.",
+            "Click để xem công thức cộng điểm đám cháy và các khoản phạt.",
             rect.x + 12,
             rect.y + 34,
             width_chars=42,
@@ -1667,7 +1666,7 @@ class Game:
 
     def fire_info_card_rect(self, fire):
         width = 310
-        height = 306 if self.report else 268
+        height = 287 if self.report else 249
         fire_center = self.fire_screen_center(fire)
         fx = fire_center[0] - TILE_SIZE // 2
         fy = fire_center[1] - TILE_SIZE // 2
@@ -1724,7 +1723,6 @@ class Game:
             ("Mức cháy", f"Cấp {fire.severity}/3"),
             ("Số xe cần", f"{fire.required_units} xe"),
             ("Khu vực", self.fire_danger_label(fire.danger_zone)),
-            ("Hạn xử lý", f"Lượt {fire.deadline}"),
             ("Điểm cơ bản", str(fire.base_score)),
             ("Xe đủ bình", self.fire_capable_trucks_text(fire)),
         ]
@@ -2553,18 +2551,6 @@ class Game:
             if not fire:
                 continue
             score += fire.base_score
-            arrival = min(
-                (plan.arrival_times.get(fid, 9999) for plan in self.report.truck_plans.values() if fid in plan.arrival_times),
-                default=9999,
-            )
-            if arrival <= fire.deadline:
-                score += ON_TIME_BONUS
-            else:
-                score -= (arrival - fire.deadline) * LATE_TURN_PENALTY
-                if fire.danger_zone == "gas":
-                    score -= GAS_LATE_PENALTY
-                if fire.danger_zone == "hospital":
-                    score -= HOSPITAL_LATE_PENALTY
         travel_cost, traffic_tiles, risky_tiles = self.current_completed_path_stats()
         score -= int(travel_cost * TRAVEL_COST_SCORE_PENALTY)
         score -= traffic_tiles * TRAFFIC_TILE_SCORE_PENALTY
@@ -3063,12 +3049,11 @@ class Game:
     def score_help_lines(self):
         lines = [
             ("CÁCH TÍNH ĐIỂM", CYAN),
-            ("Điểm cuối = điểm đám cháy + thưởng đúng hạn - các khoản phạt, sau đó không thấp hơn 0.", WHITE),
+            ("Điểm cuối = điểm đám cháy - các khoản phạt, sau đó không thấp hơn 0.", WHITE),
             ("CỘNG ĐIỂM", YELLOW),
         ]
-        self.append_wrapped_detail(lines, f"Mỗi đám cháy dập được cộng điểm cơ bản của đám đó và +{ON_TIME_BONUS} nếu tới không trễ hạn.", WHITE, max_chars=92)
+        self.append_wrapped_detail(lines, "Mỗi đám cháy dập được cộng điểm cơ bản của đám đó.", WHITE, max_chars=92)
         lines.append(("PHẠT", YELLOW))
-        self.append_wrapped_detail(lines, f"Trễ hạn: -{LATE_TURN_PENALTY} mỗi lượt trễ. Nếu trễ ở trạm xăng phạt thêm -{GAS_LATE_PENALTY}; nếu trễ ở bệnh viện phạt thêm -{HOSPITAL_LATE_PENALTY}.", WHITE, max_chars=92)
         self.append_wrapped_detail(lines, f"Chi phí đường đi: -int(tổng chi phí x {TRAVEL_COST_SCORE_PENALTY}). Nút đã tính: -int(số nút / {COMPUTATION_NODE_SCORE_DIVISOR}).", WHITE, max_chars=92)
         self.append_wrapped_detail(lines, f"Ô kẹt xe: -{TRAFFIC_TILE_SCORE_PENALTY}/ô. Ô rủi ro: -{RISKY_TILE_SCORE_PENALTY_AND_OR}/ô với And-Or, còn lại -{RISKY_TILE_SCORE_PENALTY_BELIEF}/ô.", WHITE, max_chars=92)
         self.append_wrapped_detail(lines, f"Đám cháy chưa dập: -{MISSING_FIRE_SCORE_PENALTY}/đám. Lập kế hoạch lâu bị phạt 5 điểm mỗi 6 giây; hết giờ bị phạt nặng.", WHITE, max_chars=92)

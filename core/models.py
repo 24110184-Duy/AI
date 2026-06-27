@@ -36,7 +36,6 @@ class FireIncident:
     cell: tuple
     target: tuple
     severity: int
-    deadline: int
     danger_zone: str = "normal"  # normal / hospital / gas
     required_units: int = 1
     base_score: int = 100

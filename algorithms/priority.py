@@ -20,7 +20,7 @@ def add_log(logs, line, max_lines=18):
 
 def fire_value(fire):
     danger_bonus = 3 if fire.danger_zone == "gas" else 2 if fire.danger_zone == "hospital" else 0
-    return fire.severity * 4 + danger_bonus * 5 + max(0, 8 - fire.deadline)
+    return fire.severity * 4 + danger_bonus * 5
 
 
 def order_cost(planner, order_ids, start_cell):
@@ -28,25 +28,21 @@ def order_cost(planner, order_ids, start_cell):
         return 0
     cur = start_cell
     total = 0
-    elapsed_cost = 0
     for position, fid in enumerate(order_ids):
         fire = planner.map.fire_lookup[fid]
         res = planner.route_cost(cur, fire.target)
         if not res.success:
             total += 9999
             continue
-        elapsed_cost += res.cost
-        arrival_turn = int(elapsed_cost // 7) + 1
-        late_penalty = max(0, arrival_turn - fire.deadline) * 75
         urgency_bonus = fire_value(fire) * (0.35 + 0.05 * max(0, len(order_ids) - position))
-        total += res.cost + late_penalty - urgency_bonus
+        total += res.cost - urgency_bonus
         cur = fire.target
     return total
 
 
 def initial_order_by_urgency(planner):
     fires = planner.map.fires[:]
-    fires.sort(key=lambda f: (-fire_value(f), f.deadline, f.id))
+    fires.sort(key=lambda f: (-fire_value(f), f.id))
     return [f.id for f in fires]
 
 

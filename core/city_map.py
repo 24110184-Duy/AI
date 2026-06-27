@@ -76,7 +76,6 @@ class CityMap:
         self.fires = []
         self.fire_lookup = {}
         self.selected_fire_index = 0
-        self.turn_limit = 12
         self.generate()
 
     def generate(self):
@@ -95,7 +94,6 @@ class CityMap:
         self.fires = []
         self.fire_lookup = {}
         self.selected_fire_index = 0
-        self.turn_limit = self.rng.choice([10, 11, 12])
 
         self._build_districts()
         self._build_tabletop_roads()
@@ -449,9 +447,8 @@ class CityMap:
             if lot.footprint[0] * lot.footprint[1] >= 9:
                 severity = max(severity, 2)
             required = 1 if self.force_single_truck_fires else 2 if severity >= 3 or danger == "gas" else 1
-            deadline = max(4, 9 - severity - (2 if danger != "normal" else 0))
             base_score = 100 + severity * 80 + (220 if danger == "gas" else 0) + (180 if danger == "hospital" else 0)
-            incident = FireIncident(f"F{placed + 1}", fire_cell, target, severity, deadline, danger, required, base_score)
+            incident = FireIncident(f"F{placed + 1}", fire_cell, target, severity, danger, required, base_score)
             lot.fire_id = incident.id
             self.fires.append(incident)
             self.fire_lookup[incident.id] = incident
