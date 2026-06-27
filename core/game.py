@@ -324,7 +324,7 @@ class Game:
         self.plan_buttons = [
             Button((x, 625, 165, 38), "CHẠY", self.font, self.execute_plan, icon="play"),
             Button((x + 177, 625, 165, 38), "SO SÁNH", self.font, self.compare_combos, icon="compare"),
-            Button((x, 674, 165, 38), "THỬ LẠI", self.font, self.retry_map, icon="retry"),
+            Button((x, 674, 165, 38), "NEXT MAP", self.font, self.start_crisis, icon="map"),
             Button((x + 177, 674, 165, 38), "MENU", self.font, self.to_menu, icon="menu"),
         ]
 
