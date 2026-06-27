@@ -2379,7 +2379,7 @@ class Game:
         y += 38
 
         if self.is_easy_mode():
-            self.panel.text("AI - chọn 1 trong 16 thuật toán", x, y, TEXT_MUTED, self.small_font, max_width=PANEL_CONTENT_WIDTH)
+            self.panel.text(f"AI - chọn 1 trong {len(EASY_ALGORITHMS)} thuật toán", x, y, TEXT_MUTED, self.small_font, max_width=PANEL_CONTENT_WIDTH)
             y += 20
             self.easy_algorithm_dropdown.draw(self.screen)
             y += 56
@@ -2676,7 +2676,7 @@ class Game:
         processed = self.compare_index if self.compare_running else len(self.compare_reports)
         total = self.compare_total or len(self.compare_reports)
         status = "Đang chạy" if self.compare_running else "Hoàn tất"
-        title = "SO SÁNH 16 THUẬT TOÁN" if self.is_easy_mode() else "SO SÁNH TỔ HỢP AI"
+        title = f"SO SÁNH {len(EASY_ALGORITHMS)} THUẬT TOÁN" if self.is_easy_mode() else "SO SÁNH TỔ HỢP AI"
         unit = "thuật toán" if self.is_easy_mode() else "tổ hợp"
         self.panel.text(title, rect.x + 28, rect.y + 22, WHITE, self.title_font, max_width=560)
         subtitle = f"{status}: {processed}/{total} {unit} | {self.compare_elapsed:.2f}s | cuộn chuột để xem thêm"
@@ -2723,7 +2723,7 @@ class Game:
 
         table_rect = pygame.Rect(rect.x + 28, rect.y + 246, rect.width - 56, rect.height - 318)
         if self.is_easy_mode():
-            table_title = "Bảng xếp hạng 16 thuật toán theo điểm" if self.compare_sort_mode == "score" else "Bảng xếp hạng 16 thuật toán theo thời gian"
+            table_title = f"Bảng xếp hạng {len(EASY_ALGORITHMS)} thuật toán theo điểm" if self.compare_sort_mode == "score" else f"Bảng xếp hạng {len(EASY_ALGORITHMS)} thuật toán theo thời gian"
         else:
             table_title = "Bảng xếp theo điểm cao nhất" if self.compare_sort_mode == "score" else "Bảng xếp theo thời gian lập kế hoạch nhanh nhất"
         if self.compare_running:
