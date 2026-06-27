@@ -2404,7 +2404,6 @@ class Game:
             self.draw_truck_menu_button()
             for btn in self.plan_buttons:
                 btn.draw(self.screen)
-            self.draw_compare_table(x, 720)
             self.draw_dropdowns_on_top()
             return
 
@@ -2425,7 +2424,6 @@ class Game:
         self.draw_truck_menu_button()
         for btn in self.plan_buttons:
             btn.draw(self.screen)
-        self.draw_compare_table(x, 720)
         self.draw_dropdowns_on_top()
 
     def draw_algorithm_card(self, x, y):

@@ -160,7 +160,7 @@ RISKY_TILE_SCORE_PENALTY_BELIEF = 7
 MISSING_FIRE_SCORE_PENALTY = 420
 
 # Algorithm groups: allowed by assignment list.
-ROUTE_ALGORITHMS = ["BFS", "DFS", "UCS", "Greedy", "A*"]
+ROUTE_ALGORITHMS = ["BFS", "DFS", "UCS", "Greedy", "A*", "IDA*"]
 PRIORITY_ALGORITHMS = [
     "Random Restart Hill Climbing",
     "Simulated Annealing",
@@ -174,6 +174,7 @@ DISPATCH_ALGORITHMS = [
 RISK_ALGORITHMS = [
     "And-Or Search",
     "Belief State Search",
+    "Blind Belief State Search",
     "Minimax",
     "Alpha-Beta Pruning",
     "Expectimax",
@@ -186,6 +187,7 @@ ALGORITHM_INFO = {
     "DFS": ("Đường đi", "Đi sâu trước. Chạy nhanh nhưng không đảm bảo tối ưu."),
     "UCS": ("Đường đi", "Tìm đường rẻ nhất theo chi phí. Hợp với bản đồ nhiều kẹt xe."),
     "A*": ("Đường đi", "Dùng f(n)=g(n)+h(n). Cân bằng tốt giữa tốc độ và chất lượng."),
+    "IDA*": ("Đường đi", "A* lặp sâu dần theo từng ngưỡng f(n)."),
     "Greedy": ("Đường đi", "Ưu tiên ô có vẻ gần đích nhất. Nhanh nhưng dễ mắc kẹt."),
     "IDS": ("Đường đi", "DFS giới hạn độ sâu lặp lại. Dễ thấy quá trình tăng độ sâu."),
 
@@ -203,6 +205,7 @@ ALGORITHM_INFO = {
 
     "And-Or Search": ("Rủi ro", "Lập phương án dự phòng cho đường rủi ro."),
     "Belief State Search": ("Rủi ro", "Ưu tiên tuyến an toàn khi đường có trạng thái chưa chắc chắn."),
+    "Blind Belief State Search": ("Rủi ro", "Lập kế hoạch khi điểm bắt đầu hoặc đích bị mù một phần hay toàn bộ."),
     "Minimax": ("Rủi ro", "Chọn tuyến theo trường hợp xấu nhất của đường rủi ro và kẹt xe."),
     "Alpha-Beta Pruning": ("Rủi ro", "Minimax có cắt tỉa nhánh kém để tính nhanh hơn."),
     "Expectimax": ("Rủi ro", "Chọn tuyến theo kỳ vọng khi rủi ro có xác suất xảy ra."),
@@ -213,6 +216,7 @@ ALGORITHM_LABELS = {
     "DFS": "DFS",
     "UCS": "UCS",
     "A*": "A*",
+    "IDA*": "IDA*",
     "Greedy": "Greedy",
     "IDS": "IDS",
     "Simple Hill Climbing": "Simple Hill Climbing",
@@ -227,6 +231,7 @@ ALGORITHM_LABELS = {
     "Min Conflicts": "Min Conflicts",
     "And-Or Search": "And-Or Search",
     "Belief State Search": "Belief State Search",
+    "Blind Belief State Search": "Blind Belief",
     "Minimax": "Minimax",
     "Alpha-Beta Pruning": "Alpha-Beta",
     "Expectimax": "Expectimax",
@@ -252,6 +257,11 @@ ALGORITHM_DETAILS = {
         "Kết hợp chi phí đã đi g(n) và khoảng cách ước lượng còn lại h(n).",
         "Điểm mạnh là cân bằng giữa nhanh và tốt, thường hợp nhất cho đường xe cứu hỏa.",
         "Trong log, f(n)=g(n)+h(n). AI ưu tiên ô có f thấp vì vừa gần, vừa ít tốn chi phí.",
+    ],
+    "IDA*": [
+        "Dùng cùng h(n) Manhattan như A*, nhưng không giữ toàn bộ hàng đợi ưu tiên.",
+        "AI chạy DFS nhiều vòng; mỗi vòng chỉ duyệt các nút có f(n)=g(n)+h(n) không vượt ngưỡng hiện tại.",
+        "Sau mỗi vòng, ngưỡng f tăng lên mức f nhỏ nhất vừa bị cắt, nên thấy rõ các lớp duyệt tăng dần.",
     ],
     "Greedy": [
         "Chỉ nhìn ô nào có vẻ gần đích nhất theo h(n), rồi chạy về hướng đó.",
@@ -322,6 +332,11 @@ ALGORITHM_DETAILS = {
         "Xem đường rủi ro như trạng thái chưa chắc chắn: có thể mở, có thể bị chặn.",
         "AI phạt rủi ro cao hơn để ưu tiên đường an toàn, dù đường đó có thể dài hơn.",
         "Nếu điểm ổn định hơn nhưng chi phí đường cao hơn, đó là vì AI đang chọn phương án ít rủi ro.",
+    ],
+    "Blind Belief State Search": [
+        "Mô phỏng trường hợp hệ thống không quan sát chắc điểm bắt đầu hoặc đích: có thể mù một phần, hoặc mù toàn bộ.",
+        "AI tạo tập trạng thái niềm tin quanh các trạm xe và các điểm tiếp cận đám cháy, rồi xét số tổ hợp start-goal có thể xảy ra.",
+        "Khi tập niềm tin lớn, thuật toán tăng phạt ô rủi ro để chọn tuyến ổn định hơn trong điều kiện thiếu quan sát.",
     ],
     "Minimax": [
         "Xem đường rủi ro như đối thủ luôn chọn tình huống xấu nhất cho xe cứu hỏa.",

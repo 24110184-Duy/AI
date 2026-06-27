@@ -184,6 +184,73 @@ def astar(city_map, start, goal, risky_penalty=0, blocked_cells=None):
     return _make_result("A*", started_at, [], visited, 0, False, logs, "Không tìm thấy đường.")
 
 
+def ida_star(city_map, start, goal, risky_penalty=0, blocked_cells=None):
+    started_at = time.perf_counter()
+    logs = [
+        "IDA*: lap A* theo nguong f(n)=g(n)+h(n).",
+        "Moi vong duyet DFS va cat nhanh khi f(n) vuot nguong hien tai.",
+    ]
+    threshold = manhattan(start, goal)
+    all_visited = []
+    threshold_samples = []
+    max_frontier = 1
+
+    def bounded_search(cur, goal_cost, bound, path, in_path, best_seen):
+        nonlocal max_frontier
+        f_score = goal_cost + manhattan(cur, goal)
+        if f_score > bound:
+            return f_score
+        if goal_cost >= best_seen.get(cur, float("inf")):
+            return float("inf")
+        best_seen[cur] = goal_cost
+        all_visited.append(cur)
+        if cur == goal:
+            return "FOUND"
+        minimum_cutoff = float("inf")
+        neighbors = []
+        for nb in _neighbors(city_map, cur, blocked_cells):
+            if nb in in_path:
+                continue
+            step_cost = city_map.get_tile_cost(*nb, risky_penalty=risky_penalty)
+            next_cost = goal_cost + step_cost
+            neighbors.append((next_cost + manhattan(nb, goal), next_cost, nb))
+        neighbors.sort()
+        max_frontier = max(max_frontier, len(neighbors))
+        for _priority, next_cost, nb in neighbors:
+            path.append(nb)
+            in_path.add(nb)
+            result = bounded_search(nb, next_cost, bound, path, in_path, best_seen)
+            if result == "FOUND":
+                return result
+            if result < minimum_cutoff:
+                minimum_cutoff = result
+            in_path.remove(nb)
+            path.pop()
+        return minimum_cutoff
+
+    path = [start]
+    max_iterations = 80
+    for iteration in range(max_iterations):
+        path = [start]
+        before = len(all_visited)
+        result = bounded_search(start, 0, threshold, path, {start}, {})
+        expanded = len(all_visited) - before
+        if len(threshold_samples) < 6:
+            threshold_samples.append(f"Vong {iteration + 1}: nguong f={_format_cost(threshold)}, mo rong {expanded} nut")
+        if result == "FOUND":
+            cost = path_cost(city_map, path, risky_penalty)
+            logs.extend(threshold_samples)
+            logs.append(f"Tim thay khi nguong f dat {_format_cost(threshold)}.")
+            metrics = {"final_threshold": threshold, "iterations": iteration + 1, "max_frontier": max_frontier}
+            return _make_result("IDA*", started_at, path[:], all_visited, cost, True, logs, "A* lap sau dan theo f(n).", metrics)
+        if result == float("inf"):
+            logs.extend(threshold_samples)
+            return _make_result("IDA*", started_at, [], all_visited, 0, False, logs, "Khong co nguong f nao toi dich.")
+        threshold = result
+    logs.extend(threshold_samples)
+    return _make_result("IDA*", started_at, [], all_visited, 0, False, logs, "Dung do qua nhieu vong tang nguong f.")
+
+
 def greedy(city_map, start, goal, risky_penalty=0, blocked_cells=None):
     started_at = time.perf_counter()
     pq = [(manhattan(start, goal), start)]
@@ -269,6 +336,7 @@ PATH_ALGORITHM_FUNCS = {
     "DFS": dfs,
     "UCS": ucs,
     "A*": astar,
+    "IDA*": ida_star,
     "Greedy": greedy,
     "IDS": ids,
 }

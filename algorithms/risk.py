@@ -13,6 +13,21 @@ def _sample_cells(cells, limit=4):
     return f"{shown}{suffix}"
 
 
+def _belief_cells_around(city_map, seeds, radius=1):
+    cells = set(seeds)
+    frontier = list(seeds)
+    for _step in range(radius):
+        next_frontier = []
+        for row, col in frontier:
+            for nb in city_map.get_neighbors(row, col):
+                if nb in cells:
+                    continue
+                cells.add(nb)
+                next_frontier.append(nb)
+        frontier = next_frontier
+    return sorted(cells)
+
+
 def and_or_policy(planner):
     risky_cells = _cells_with_tile(planner.map, RISKY)
     traffic_cells = _cells_with_tile(planner.map, TRAFFIC)
@@ -34,6 +49,26 @@ def belief_state_policy(planner):
     logs.append("Niềm tin: '?' có thể mở hoặc chặn, kẹt xe có thể nhẹ hoặc nặng.")
     logs.append("Mô hình: phạt rủi ro cao để ưu tiên đường đã biết an toàn hơn.")
     return 6, logs
+
+
+def blind_belief_policy(planner):
+    risky_cells = _cells_with_tile(planner.map, RISKY)
+    traffic_cells = _cells_with_tile(planner.map, TRAFFIC)
+    starts = [truck.start for truck in planner.map.stations]
+    goals = [fire.target for fire in planner.map.fires]
+    partial_start_cells = _belief_cells_around(planner.map, starts, radius=1)
+    partial_goal_cells = _belief_cells_around(planner.map, goals, radius=1)
+    full_belief_states = max(1, len(partial_start_cells) * len(partial_goal_cells))
+    uncertainty_pressure = min(4, full_belief_states // 80)
+    penalty = min(13, 5 + len(risky_cells) // 6 + uncertainty_pressure)
+    logs = ["Blind Belief State Search: mo phong niem tin khi diem bat dau hoac dich bi mu."]
+    logs.append(f"Mo mot phan bat dau: {_sample_cells(partial_start_cells)}")
+    logs.append(f"Mo mot phan dich: {_sample_cells(partial_goal_cells)}")
+    logs.append(f"Mo toan bo: {len(partial_start_cells)} x {len(partial_goal_cells)} = {full_belief_states} trang thai niem tin.")
+    logs.append(f"O rui ro '?': {_sample_cells(risky_cells)}")
+    logs.append(f"O ket xe: {len(traffic_cells)}")
+    logs.append(f"Mo hinh: tang penalty '?' len {penalty} de uu tien duong on dinh khi thieu quan sat.")
+    return penalty, logs
 
 
 def minimax_policy(planner):
@@ -80,6 +115,7 @@ def expectimax_policy(planner):
 RISK_ALGORITHM_FUNCS = {
     "And-Or Search": and_or_policy,
     "Belief State Search": belief_state_policy,
+    "Blind Belief State Search": blind_belief_policy,
     "Minimax": minimax_policy,
     "Alpha-Beta Pruning": alpha_beta_policy,
     "Expectimax": expectimax_policy,
