@@ -6,6 +6,12 @@ import os
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ASSET_ROOT = os.path.join(BASE_DIR, "assets")
+SOUND_ROOT = os.path.join(ASSET_ROOT, "sounds")
+AUDIO_PATHS = {
+    "menu_music": os.path.join(SOUND_ROOT, "menu_music.mp3"),
+    "game_music": os.path.join(SOUND_ROOT, "game_music.mp3"),
+    "firetruck_siren": os.path.join(SOUND_ROOT, "firetruck_siren.mp3"),
+}
 
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 800

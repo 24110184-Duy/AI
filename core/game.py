@@ -24,6 +24,7 @@ from config import (
     ROUTE_DASH_LENGTH, ROUTE_GAP_LENGTH, ROUTE_LANE_COUNT, TRUCK_COLORS,
 )
 from utils.asset_loader import AssetLoader
+from core.audio import GameAudio
 from core.city_map import CityMap
 from core.planner import CrisisPlanner
 from core.models import ComboChoice
@@ -37,6 +38,7 @@ from utils.traffic_lanes import direction_between, distributed_lane_slot, lane_c
 
 class Game:
     def __init__(self):
+        GameAudio.pre_init()
         pygame.init()
         self.fullscreen = FULLSCREEN
         self.screen = self.set_display_mode()
@@ -45,6 +47,8 @@ class Game:
         self.running = True
         self.state = STATE_MENU
         self.difficulty = "hard"
+        self.audio = GameAudio()
+        Button.set_click_sound(self.audio.play_click)
 
         self.asset_loader = AssetLoader()
         self.city_map = None
@@ -133,6 +137,7 @@ class Game:
         self.new_crisis()
         self.create_planning_ui()
         self.create_result_ui()
+        self.audio.sync_state(self.state)
 
     def load_font(self, names, size, bold=False):
         for name in names:
@@ -160,6 +165,12 @@ class Game:
         self.fullscreen = not self.fullscreen
         self.screen = self.set_display_mode()
         self.panel.screen = self.screen
+
+    def set_state(self, state, result_sound=False):
+        self.state = state
+        self.audio.sync_state(state)
+        if result_sound and self.report:
+            self.audio.play_result(self.report.win)
 
     def create_background_cars(self):
         rng = random.Random(20260626)
@@ -597,12 +608,12 @@ class Game:
     def start_crisis(self):
         self.close_open_menus()
         self.new_crisis()
-        self.state = STATE_PLANNING
+        self.set_state(STATE_PLANNING)
 
     def random_map_menu(self):
         self.close_open_menus()
         self.new_crisis()
-        self.state = STATE_PLANNING
+        self.set_state(STATE_PLANNING)
 
     def retry_map(self):
         self.close_open_menus()
@@ -622,7 +633,7 @@ class Game:
         self.create_trucks()
         self.reset_execution_state()
         self.planning_started_at = time.perf_counter()
-        self.state = STATE_PLANNING
+        self.set_state(STATE_PLANNING)
 
     def back_to_planning(self):
         self.close_open_menus()
@@ -630,7 +641,7 @@ class Game:
         self.create_trucks()
         self.reset_execution_state()
         self.planning_started_at = time.perf_counter()
-        self.state = STATE_PLANNING
+        self.set_state(STATE_PLANNING)
 
     def review_result(self):
         if not self.report:
@@ -645,12 +656,12 @@ class Game:
         self.visited_visible = len(self.report.route_visited)
         self.path_visible = self.max_route_path_length()
         self.freeze_trucks_at_route_end()
-        self.state = STATE_RESULT
+        self.set_state(STATE_RESULT)
 
     def to_menu(self):
         self.close_open_menus()
         self.reviewing_result = False
-        self.state = STATE_MENU
+        self.set_state(STATE_MENU)
 
     def quit_game(self):
         self.running = False
@@ -777,9 +788,9 @@ class Game:
             self.execution_done = True
             self.visited_visible = len(self.report.route_visited)
             self.path_visible = self.max_route_path_length()
-            self.state = STATE_RESULT
+            self.set_state(STATE_RESULT, result_sound=True)
         else:
-            self.state = STATE_EXECUTING
+            self.set_state(STATE_EXECUTING)
 
     def compare_combos(self):
         self.close_open_menus()
@@ -862,7 +873,7 @@ class Game:
                 truck.update(self.animation_speed)
             if self.all_trucks_finished():
                 self.execution_done = True
-                self.state = STATE_RESULT
+                self.set_state(STATE_RESULT, result_sound=True)
 
     def handle_events(self):
         for event in pygame.event.get():
@@ -941,6 +952,7 @@ class Game:
                     continue
             if self.state != STATE_MENU and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if self.score_help_button_rect().collidepoint(event.pos):
+                    self.audio.play_click()
                     self.open_score_modal()
                     return
             if self.handle_map_zoom_event(event):
@@ -958,8 +970,11 @@ class Game:
                 dropdowns = [self.easy_algorithm_dropdown] if self.is_easy_mode() else [self.dispatch_dropdown, self.priority_dropdown, self.route_dropdown, self.risk_dropdown]
                 for dd in dropdowns:
                     if dd.handle_event(event):
+                        self.audio.play_click()
                         return
                 if self.speed_slider.handle_event(event):
+                    if event.type == pygame.MOUSEBUTTONDOWN:
+                        self.audio.play_click()
                     return
                 if self.legend_button and self.legend_button.handle_event(event):
                     return
@@ -994,6 +1009,8 @@ class Game:
                             self.risk_dropdown.next()
             elif self.state == STATE_EXECUTING:
                 if self.speed_slider.handle_event(event):
+                    if event.type == pygame.MOUSEBUTTONDOWN:
+                        self.audio.play_click()
                     return
                 if self.details_button and self.details_button.handle_event(event):
                     return
@@ -1004,7 +1021,8 @@ class Game:
                 if self.truck_menu_button and self.truck_menu_button.handle_event(event):
                     return
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                    self.state = STATE_RESULT
+                    self.execution_done = True
+                    self.set_state(STATE_RESULT, result_sound=True)
             elif self.state == STATE_RESULT:
                 if not self.reviewing_result:
                     for btn in self.result_modal_buttons:

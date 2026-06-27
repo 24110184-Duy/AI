@@ -7,6 +7,11 @@ from config import BUTTON_COLOR, BUTTON_HOVER, BUTTON_ACTIVE, WHITE, TEXT_MUTED,
 
 class Button:
     CLICK_MS = 260
+    click_sound_callback = None
+
+    @classmethod
+    def set_click_sound(cls, callback):
+        cls.click_sound_callback = callback
 
     def __init__(self, rect, text, font, action=None, icon=None):
         self.rect = pygame.Rect(rect)
@@ -161,6 +166,8 @@ class Button:
             self.pending_click = False
             if was_pending and self.rect.collidepoint(event.pos):
                 self.pressed_until = pygame.time.get_ticks() + self.CLICK_MS
+                if Button.click_sound_callback:
+                    Button.click_sound_callback()
                 if self.action:
                     self.action()
                 return True
