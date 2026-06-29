@@ -211,7 +211,9 @@ class CrisisPlanner:
         fire_order = [fire.id for fire in self.map.fires]
         fire_to_trucks = {fid: [self.map.stations[0].id] for fid in fire_order} if self.map.stations else {}
 
-        if algorithm in RISK_ALGORITHMS:
+        if algorithm in ROUTE_ALGORITHMS:
+            report.route_logs = [f"AI đường đi: {ALGORITHM_LABELS.get(algorithm, algorithm)}"]
+        elif algorithm in RISK_ALGORITHMS:
             risk_func = RISK_ALGORITHM_FUNCS[algorithm]
             self.current_risky_penalty, report.risk_logs = risk_func(self)
         elif algorithm in PRIORITY_ALGORITHMS:
@@ -220,8 +222,6 @@ class CrisisPlanner:
         elif algorithm in DISPATCH_ALGORITHMS:
             dispatch_func = DISPATCH_ALGORITHM_FUNCS[algorithm]
             fire_to_trucks, report.dispatch_logs = dispatch_func(self, fire_order)
-        elif algorithm in ROUTE_ALGORITHMS:
-            report.route_logs = [f"AI đường đi: {ALGORITHM_LABELS.get(algorithm, algorithm)}"]
 
         report.fire_order = fire_order
         report.fire_to_trucks = fire_to_trucks

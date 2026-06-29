@@ -2114,7 +2114,7 @@ class Game:
                 pygame.draw.rect(surface, color, rect, 3, border_radius=6)
 
     def draw_easy_algorithm_badge(self, surface, algorithm):
-        group, _desc = ALGORITHM_INFO.get(algorithm, ("AI", ""))
+        group, _desc = self.easy_algorithm_info(algorithm)
         title = f"{self.algorithm_label(algorithm)} - {group}"
         rect = pygame.Rect(12, 12, 380, 62)
         pygame.draw.rect(surface, (10, 12, 18, 215), rect, border_radius=8)
@@ -2171,6 +2171,12 @@ class Game:
 
     def algorithm_label(self, algorithm):
         return ALGORITHM_LABELS.get(algorithm, algorithm)
+
+    def easy_algorithm_info(self, algorithm):
+        group, desc = ALGORITHM_INFO.get(algorithm, ("AI", ""))
+        if algorithm in ROUTE_ALGORITHMS:
+            group = "Đường đi"
+        return group, desc
 
     def draw_parallel_path(self, surface, path, color, slot_index=0, slot_count=1, alpha=225, dashed=False, label=None):
         if len(path) < 2:
@@ -2427,7 +2433,7 @@ class Game:
     def draw_algorithm_card(self, x, y):
         if self.is_easy_mode():
             algorithm = self.easy_algorithm_dropdown.selected
-            group, _desc = ALGORITHM_INFO.get(algorithm, ("AI", ""))
+            group, _desc = self.easy_algorithm_info(algorithm)
             self.panel.text("AI đã chọn:", x, y, CYAN, self.small_font, max_width=PANEL_CONTENT_WIDTH)
             y += 18
             self.panel.text(f"{group}: {self.algorithm_label(algorithm)}", x, y, WHITE, self.tiny_font, max_width=PANEL_CONTENT_WIDTH)
@@ -2742,7 +2748,7 @@ class Game:
         self.panel.text(sub_metric, rect.x + 14, rect.y + 66, TEXT_MUTED, self.tiny_font, max_width=rect.width - 28)
         if self.is_easy_mode():
             algorithm = report.compare_algorithm or report.choice.route_ai
-            group, _desc = ALGORITHM_INFO.get(algorithm, ("AI", ""))
+            group, _desc = self.easy_algorithm_info(algorithm)
             line = f"{self.algorithm_label(algorithm)} ({group})"
             self.panel.text(line, rect.x + 14, rect.y + 88, TEXT_MUTED, self.tiny_font, max_width=rect.width - 28)
             return
@@ -2791,7 +2797,7 @@ class Game:
                 pygame.draw.rect(self.screen, (31, 31, 42), row_rect, border_radius=4)
 
             algorithm = report.compare_algorithm or report.choice.route_ai
-            group, _desc = ALGORITHM_INFO.get(algorithm, ("AI", ""))
+            group, _desc = self.easy_algorithm_info(algorithm)
             color = WHITE if is_fastest else TEXT_MUTED
             values = [
                 str(index),
@@ -2937,7 +2943,7 @@ class Game:
 
     def easy_detail_lines(self):
         algorithm = self.report.compare_algorithm
-        group, _desc = ALGORITHM_INFO.get(algorithm, ("AI", ""))
+        group, _desc = self.easy_algorithm_info(algorithm)
         logs = self.logs_for_algorithm(self.report, algorithm)
         lines = [
             ("TÓM TẮT", CYAN),
@@ -2960,12 +2966,12 @@ class Game:
         return lines
 
     def logs_for_algorithm(self, report, algorithm):
+        if algorithm in ROUTE_ALGORITHMS:
+            return report.route_logs
         if algorithm in DISPATCH_ALGORITHMS:
             return report.dispatch_logs
         if algorithm in PRIORITY_ALGORITHMS:
             return report.priority_logs
-        if algorithm in ROUTE_ALGORITHMS:
-            return report.route_logs
         if algorithm in RISK_ALGORITHMS:
             return report.risk_logs
         return []

@@ -2,6 +2,8 @@
 
 from collections import deque
 import heapq
+import math
+import random
 import time
 
 from config import RISKY, TRAFFIC
@@ -331,6 +333,286 @@ def ids(city_map, start, goal, risky_penalty=0, blocked_cells=None):
     return _make_result("IDS", started_at, [], all_visited, 0, False, logs, "Không có đường trong giới hạn độ sâu.")
 
 
+def _search_limit(city_map, multiplier=2):
+    rows = len(city_map.grid)
+    cols = len(city_map.grid[0]) if rows else 0
+    return max(80, rows * cols * multiplier)
+
+
+def _stable_rng(name, start, goal):
+    seed = (
+        sum(ord(ch) for ch in name) * 1009
+        + start[0] * 917
+        + start[1] * 613
+        + goal[0] * 389
+        + goal[1] * 211
+    )
+    return random.Random(seed)
+
+
+def _local_path_score(city_map, path, goal, risky_penalty=0, distance_weight=3.0):
+    if not path:
+        return float("inf")
+    return (
+        path_cost(city_map, path, risky_penalty)
+        + manhattan(path[-1], goal) * distance_weight
+        + max(0, len(path) - 1) * 0.15
+    )
+
+
+def random_restart_hill_climbing_route(city_map, start, goal, risky_penalty=0, blocked_cells=None):
+    started_at = time.perf_counter()
+    rng = _stable_rng("Random Restart Hill Climbing", start, goal)
+    logs = [
+        "Random Restart Hill Climbing route: restart nhieu lan va leo theo o lan can tot hon.",
+        "Khong goi A*: diem = chi phi duong hien tai + khoang cach Manhattan toi dich.",
+    ]
+    visited = [start]
+    best_partial = [start]
+    best_partial_score = _local_path_score(city_map, best_partial, goal, risky_penalty)
+    max_steps = _search_limit(city_map, 2)
+    restart_count = 42
+
+    for restart in range(restart_count):
+        path = [start]
+        seen = {start}
+        sideways_left = 20 + restart % 9
+        backtrack_left = 42
+        noise = 0.75 + restart * 0.08
+        current_score = _local_path_score(city_map, path, goal, risky_penalty)
+
+        for _step in range(max_steps):
+            cur = path[-1]
+            if cur == goal:
+                cost = path_cost(city_map, path, risky_penalty)
+                logs.append(f"Restart {restart + 1}: toi dich voi chi phi {_format_cost(cost)}.")
+                metrics = {"restarts": restart + 1, "best_score": current_score}
+                return _make_result(
+                    "Random Restart Hill Climbing",
+                    started_at,
+                    path,
+                    visited,
+                    cost,
+                    True,
+                    logs,
+                    "Leo doi co restart da tim thay duong.",
+                    metrics,
+                )
+
+            options = []
+            for nb in _neighbors(city_map, cur, blocked_cells):
+                if nb in seen:
+                    continue
+                next_path = path + [nb]
+                score = _local_path_score(city_map, next_path, goal, risky_penalty)
+                score += rng.random() * noise
+                options.append((score, nb, next_path))
+            if not options:
+                if len(path) > 1 and backtrack_left > 0:
+                    seen.remove(path.pop())
+                    current_score = _local_path_score(city_map, path, goal, risky_penalty)
+                    backtrack_left -= 1
+                    continue
+                break
+
+            options.sort(key=lambda item: item[0])
+            top_count = min(len(options), 1 + restart % 4)
+            next_score, nb, next_path = options[0] if restart % 3 == 0 else rng.choice(options[:top_count])
+            if next_score > current_score and sideways_left <= 0:
+                if len(path) > 1 and backtrack_left > 0:
+                    seen.remove(path.pop())
+                    current_score = _local_path_score(city_map, path, goal, risky_penalty)
+                    backtrack_left -= 1
+                    sideways_left = 8
+                    continue
+                break
+            if next_score > current_score:
+                sideways_left -= 1
+
+            path = next_path
+            seen.add(nb)
+            visited.append(nb)
+            current_score = next_score
+            if current_score < best_partial_score:
+                best_partial_score = current_score
+                best_partial = path[:]
+
+        if restart in (0, 1, 3, 7, 15):
+            logs.append(
+                f"Restart {restart + 1}: gan nhat {best_partial[-1]}, h={manhattan(best_partial[-1], goal)}, "
+                f"do dai={max(0, len(best_partial) - 1)}"
+            )
+
+    return _make_result(
+        "Random Restart Hill Climbing",
+        started_at,
+        [],
+        visited,
+        0,
+        False,
+        logs,
+        "Hill climbing ket o cuc bo, khong tim thay duong.",
+        {"restarts": restart_count, "best_h": manhattan(best_partial[-1], goal)},
+    )
+
+
+def simulated_annealing_route(city_map, start, goal, risky_penalty=0, blocked_cells=None):
+    started_at = time.perf_counter()
+    rng = _stable_rng("Simulated Annealing", start, goal)
+    logs = [
+        "Simulated Annealing route: chap nhan buoc te hon khi nhiet do con cao.",
+        "Khong goi A*: trang thai la duong dang di, neighbor la o ke tiep.",
+    ]
+    visited = [start]
+    max_steps = _search_limit(city_map, 2)
+    restarts = 12
+    best_partial = [start]
+    best_score = _local_path_score(city_map, best_partial, goal, risky_penalty, distance_weight=4.0)
+
+    for restart in range(restarts):
+        path = [start]
+        seen = {start}
+        temperature = 42.0 + restart * 3.0
+        current_score = _local_path_score(city_map, path, goal, risky_penalty, distance_weight=4.0)
+
+        for step in range(max_steps):
+            cur = path[-1]
+            if cur == goal:
+                cost = path_cost(city_map, path, risky_penalty)
+                logs.append(f"Restart {restart + 1}: toi dich o buoc {step}, T={temperature:.2f}.")
+                metrics = {"restarts": restart + 1, "temperature": temperature}
+                return _make_result(
+                    "Simulated Annealing",
+                    started_at,
+                    path,
+                    visited,
+                    cost,
+                    True,
+                    logs,
+                    "Duong di duoc tim bang u mo phong.",
+                    metrics,
+                )
+
+            neighbors = [nb for nb in _neighbors(city_map, cur, blocked_cells) if nb not in seen]
+            if not neighbors:
+                if len(path) <= 1:
+                    break
+                seen.remove(path.pop())
+                current_score = _local_path_score(city_map, path, goal, risky_penalty, distance_weight=4.0)
+                temperature *= 0.985
+                continue
+
+            rng.shuffle(neighbors)
+            proposals = []
+            for nb in neighbors[:4]:
+                next_path = path + [nb]
+                score = _local_path_score(city_map, next_path, goal, risky_penalty, distance_weight=4.0)
+                proposals.append((score, nb, next_path))
+            proposals.sort(key=lambda item: item[0])
+            proposed_score, nb, next_path = proposals[0] if rng.random() > 0.2 else rng.choice(proposals)
+            delta = proposed_score - current_score
+            accept = delta <= 0 or rng.random() < math.exp(-delta / max(temperature, 0.001))
+            if accept:
+                path = next_path
+                seen.add(nb)
+                visited.append(nb)
+                current_score = proposed_score
+                if current_score < best_score:
+                    best_score = current_score
+                    best_partial = path[:]
+            elif len(path) > 1 and rng.random() < 0.18:
+                seen.remove(path.pop())
+                current_score = _local_path_score(city_map, path, goal, risky_penalty, distance_weight=4.0)
+
+            temperature *= 0.982
+            if temperature < 0.08:
+                temperature = 9.0
+
+        if restart in (0, 1, 3, 7):
+            logs.append(
+                f"Restart {restart + 1}: best h={manhattan(best_partial[-1], goal)}, "
+                f"do dai={max(0, len(best_partial) - 1)}"
+            )
+
+    return _make_result(
+        "Simulated Annealing",
+        started_at,
+        [],
+        visited,
+        0,
+        False,
+        logs,
+        "U mo phong khong tim thay duong trong gioi han buoc.",
+        {"restarts": restarts, "best_h": manhattan(best_partial[-1], goal)},
+    )
+
+
+def local_beam_route(city_map, start, goal, risky_penalty=0, blocked_cells=None):
+    started_at = time.perf_counter()
+    logs = [
+        "Local Beam Search route: giu nhieu duong ung vien tot cung luc.",
+        "Khong goi A*: moi vong chi mo rong cac beam hien co va giu beam co diem thap.",
+    ]
+    visited = [start]
+    beam_width = 14
+    max_steps = _search_limit(city_map, 1)
+    beams = [(0, [start])]
+    best_path = [start]
+    best_score = _local_path_score(city_map, best_path, goal, risky_penalty, distance_weight=2.2)
+
+    for step in range(max_steps):
+        candidates = []
+        for cost_so_far, path in beams:
+            cur = path[-1]
+            for nb in _neighbors(city_map, cur, blocked_cells):
+                if nb in path:
+                    continue
+                step_cost = city_map.get_tile_cost(*nb, risky_penalty=risky_penalty)
+                next_cost = cost_so_far + step_cost
+                next_path = path + [nb]
+                visited.append(nb)
+                if nb == goal:
+                    cost = path_cost(city_map, next_path, risky_penalty)
+                    logs.append(f"Beam step {step + 1}: gap dich, chi phi {_format_cost(cost)}.")
+                    metrics = {"beam_width": beam_width, "steps": step + 1}
+                    return _make_result(
+                        "Local Beam Search",
+                        started_at,
+                        next_path,
+                        visited,
+                        cost,
+                        True,
+                        logs,
+                        "Beam tot nhat da cham dich.",
+                        metrics,
+                    )
+                score = next_cost + manhattan(nb, goal) * 2.2 + len(next_path) * 0.1
+                candidates.append((score, next_cost, next_path))
+                if score < best_score:
+                    best_score = score
+                    best_path = next_path[:]
+        if not candidates:
+            break
+        candidates.sort(key=lambda item: item[0])
+        beams = [(cost, path) for _score, cost, path in candidates[:beam_width]]
+        if step in (0, 1, 3, 7, 15, 31):
+            logs.append(
+                f"Beam step {step + 1}: giu {len(beams)} beam, best h={manhattan(beams[0][1][-1], goal)}"
+            )
+
+    return _make_result(
+        "Local Beam Search",
+        started_at,
+        [],
+        visited,
+        0,
+        False,
+        logs,
+        "Beam search mat het ung vien truoc khi toi dich.",
+        {"beam_width": beam_width, "best_h": manhattan(best_path[-1], goal)},
+    )
+
+
 PATH_ALGORITHM_FUNCS = {
     "BFS": bfs,
     "DFS": dfs,
@@ -339,4 +621,7 @@ PATH_ALGORITHM_FUNCS = {
     "IDA*": ida_star,
     "Greedy": greedy,
     "IDS": ids,
+    "Random Restart Hill Climbing": random_restart_hill_climbing_route,
+    "Simulated Annealing": simulated_annealing_route,
+    "Local Beam Search": local_beam_route,
 }

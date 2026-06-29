@@ -155,7 +155,17 @@ RISKY_TILE_SCORE_PENALTY_BELIEF = 7
 MISSING_FIRE_SCORE_PENALTY = 420
 
 # Algorithm groups: allowed by assignment list.
-ROUTE_ALGORITHMS = ["BFS", "DFS", "UCS", "Greedy", "A*", "IDA*"]
+ROUTE_ALGORITHMS = [
+    "BFS",
+    "DFS",
+    "UCS",
+    "Greedy",
+    "A*",
+    "IDA*",
+    "Random Restart Hill Climbing",
+    "Simulated Annealing",
+    "Local Beam Search",
+]
 PRIORITY_ALGORITHMS = [
     "Random Restart Hill Climbing",
     "Simulated Annealing",
@@ -175,7 +185,9 @@ RISK_ALGORITHMS = [
     "Expectimax",
 ]
 
-EASY_ALGORITHMS = ROUTE_ALGORITHMS + PRIORITY_ALGORITHMS + DISPATCH_ALGORITHMS + RISK_ALGORITHMS
+EASY_ALGORITHMS = list(dict.fromkeys(
+    ROUTE_ALGORITHMS + PRIORITY_ALGORITHMS + DISPATCH_ALGORITHMS + RISK_ALGORITHMS
+))
 
 ALGORITHM_INFO = {
     "BFS": ("Đường đi", "Tìm đường ngắn nhất theo số ô. Hợp khi mọi đường có chi phí như nhau."),
